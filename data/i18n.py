@@ -315,6 +315,18 @@ SW = {
     "Last updated": "Ilisasishwa mwisho",
     "**Personal details**": "**Maelezo binafsi**",
     "Full name *": "Jina kamili *",
+    "Surname *": "Jina la ukoo *",
+    "First name *": "Jina la kwanza *",
+    "Second name": "Jina la pili",
+    "ID type": "Aina ya kitambulisho",
+    "National ID": "Kitambulisho cha taifa",
+    "Passport": "Pasipoti",
+    "Alien ID": "Kitambulisho cha mgeni",
+    "ID / passport number": "Nambari ya kitambulisho / pasipoti",
+    "Stored only in this app's data folder and shown masked (last 4 characters).":
+        "Huhifadhiwa tu kwenye folda ya data ya programu hii na huonyeshwa kwa kufichwa (herufi 4 za mwisho).",
+    "ID/passport, goals, sectors, budget and notes are in the 👤 Profile tab.":
+        "Kitambulisho/pasipoti, malengo, sekta, bajeti na maelezo yako kwenye kichupo cha 👤 Wasifu.",
     "Email": "Barua pepe",
     "Phone": "Simu",
     "County / town": "Kaunti / mji",

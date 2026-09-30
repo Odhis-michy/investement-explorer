@@ -27,7 +27,15 @@ GOALS = [
     "Buying property",
 ]
 
+ID_TYPES = ["National ID", "Passport", "Alien ID"]
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Kenyan National ID: 6-9 digits · Passport: 6-12 letters/digits (e.g. AK1234567) · Alien ID: 6-10 digits
+_ID_RULES = {
+    "National ID": (re.compile(r"^\d{6,9}$"), "a National ID number is 6-9 digits"),
+    "Passport": (re.compile(r"^[A-Z0-9]{6,12}$"), "a passport number is 6-12 letters/digits, e.g. AK1234567"),
+    "Alien ID": (re.compile(r"^\d{6,10}$"), "an Alien ID number is 6-10 digits"),
+}
 
 
 @dataclass
@@ -38,7 +46,12 @@ class ProfileResult:
 
 def _default_profile() -> dict:
     return {
-        "fullName": "",
+        "surname": "",
+        "firstName": "",
+        "secondName": "",
+        "fullName": "",  # derived: "Surname First Second"
+        "idType": ID_TYPES[0],
+        "idNumber": "",
         "email": "",
         "phone": "",
         "location": "",
@@ -60,7 +73,38 @@ def load_profile() -> dict:
     if not PROFILE_PATH.exists():
         return _default_profile()
     # Merge over defaults so profiles saved by older versions still get new fields.
-    return {**_default_profile(), **json.loads(PROFILE_PATH.read_text())}
+    profile = {**_default_profile(), **json.loads(PROFILE_PATH.read_text())}
+    if profile["fullName"] and not (profile["surname"] or profile["firstName"]):
+        # Older profiles stored one "First Middle Last" name — split it into the separate fields.
+        parts = profile["fullName"].split()
+        profile["firstName"] = parts[0]
+        profile["surname"] = parts[-1] if len(parts) > 1 else ""
+        profile["secondName"] = " ".join(parts[1:-1])
+    return profile
+
+
+def compose_full_name(surname: str, first: str, second: str) -> str:
+    return " ".join(x for x in (surname, first, second) if x)
+
+
+def normalize_id(number: str) -> str:
+    return re.sub(r"[\s-]", "", number or "").upper()
+
+
+def validate_id(id_type: str, number: str) -> str | None:
+    """Error message if `number` isn't a plausible document number for `id_type`, else None."""
+    pattern, rule = _ID_RULES.get(id_type, _ID_RULES["National ID"])
+    return None if pattern.match(normalize_id(number)) else f"That doesn't look right — {rule}."
+
+
+def mask_id(number: str) -> str:
+    """Show only the last 4 characters, e.g. '•••• 5678'."""
+    n = normalize_id(number)
+    return f"•••• {n[-4:]}" if n else ""
+
+
+def _valid_name(name: str) -> bool:
+    return all(ch.isalpha() or ch in " '-." for ch in name)
 
 
 def save_profile(profile: dict) -> None:
@@ -68,10 +112,20 @@ def save_profile(profile: dict) -> None:
 
 
 def update_profile(profile: dict, updates: dict) -> ProfileResult:
-    name = updates.get("fullName", "").strip()
-    email = updates.get("email", "").strip()
-    if not name:
-        return ProfileResult(False, "Full name is required.")
+    surname = updates.get("surname", profile.get("surname", "")).strip()
+    first = updates.get("firstName", profile.get("firstName", "")).strip()
+    second = updates.get("secondName", profile.get("secondName", "")).strip()
+    email = updates.get("email", profile.get("email", "")).strip()
+    if not surname or not first:
+        return ProfileResult(False, "Surname and first name are required.")
+    if not all(_valid_name(n) for n in (surname, first, second)):
+        return ProfileResult(False, "Names can only contain letters, spaces, hyphens and apostrophes.")
+    if "idNumber" in updates:
+        updates["idNumber"] = normalize_id(updates["idNumber"])
+        if updates["idNumber"]:
+            error = validate_id(updates.get("idType", profile.get("idType", ID_TYPES[0])), updates["idNumber"])
+            if error:
+                return ProfileResult(False, error)
     if email and not _EMAIL_RE.match(email):
         return ProfileResult(False, f"'{email}' doesn't look like a valid email address.")
     if updates.get("emailAlerts") and not email:
@@ -85,6 +139,7 @@ def update_profile(profile: dict, updates: dict) -> ProfileResult:
         return ProfileResult(False, "Monthly investment budget can't be negative.")
 
     profile.update({k: v.strip() if isinstance(v, str) else v for k, v in updates.items()})
+    profile["fullName"] = compose_full_name(surname, first, second)
     profile["lastUpdated"] = datetime.now().isoformat(timespec="seconds")
     save_profile(profile)
     return ProfileResult(True, "Profile saved.")

@@ -356,7 +356,7 @@ def render_hero(raw: dict) -> None:
     from data.profile import load_profile
 
     profile = load_profile()
-    name = html.escape(profile["fullName"])
+    name = html.escape(profile["firstName"] or profile["fullName"])
     if name:
         greeting = f"{t(_greeting())}, <b>{name}</b>"
         chips = [t(profile["riskTolerance"]) + " · " + t("risk"), t(profile["horizon"])]
@@ -433,7 +433,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
     # --- Profile card -----------------------------------------------------------
     name = profile["fullName"]
     if name:
-        initials = "".join(part[0] for part in name.split()[:2]).upper()
+        initials = "".join(n[:1] for n in (profile["firstName"], profile["surname"]) if n).upper() or name[:1].upper()
         contact = " · ".join(html.escape(x) for x in (profile["email"], profile["location"]) if x)
         chips = [t(profile["experience"]), t(profile["riskTolerance"]) + " · " + t("risk"), t(profile["horizon"])]
         sb.markdown(
@@ -480,7 +480,9 @@ def render_sidebar(df: pd.DataFrame) -> None:
     ver = profile["lastUpdated"] or "new"
     with sb.expander(t("⚙️ Account settings"), expanded=not name):
         with st.form("sidebar_settings"):
-            new_name = st.text_input(t("Full name *"), value=profile["fullName"], key=f"sb_name_{ver}")
+            new_surname = st.text_input(t("Surname *"), value=profile["surname"], key=f"sb_surname_{ver}")
+            new_first = st.text_input(t("First name *"), value=profile["firstName"], key=f"sb_first_{ver}")
+            new_second = st.text_input(t("Second name"), value=profile["secondName"], key=f"sb_second_{ver}")
             new_email = st.text_input(t("Email"), value=profile["email"], key=f"sb_email_{ver}")
             new_phone = st.text_input(t("Phone"), value=profile["phone"], key=f"sb_phone_{ver}")
             new_risk = st.selectbox(t("Risk tolerance"), RISK_LEVELS, index=RISK_LEVELS.index(profile["riskTolerance"]), format_func=t, key=f"sb_risk_{ver}_{st.session_state.get('lang')}"
@@ -491,7 +493,9 @@ def render_sidebar(df: pd.DataFrame) -> None:
                 result = update_profile(
                     profile,
                     {
-                        "fullName": new_name,
+                        "surname": new_surname,
+                        "firstName": new_first,
+                        "secondName": new_second,
                         "email": new_email,
                         "phone": new_phone,
                         "riskTolerance": new_risk,
@@ -501,7 +505,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
                 if result.ok:
                     st.rerun()
                 st.error(result.message)
-        st.caption(t("Goals, sectors, budget and notes are in the 👤 Profile tab."))
+        st.caption(t("ID/passport, goals, sectors, budget and notes are in the 👤 Profile tab."))
 
     with sb.expander(t("🧹 Reset data")):
         st.caption(t("These can't be undone."))
@@ -1100,7 +1104,7 @@ def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
             pick = n1.selectbox(t("Contract note for trade"), list(labels), key="td_note_pick")
             idx = labels[pick]
             n2.download_button(t("📄 Contract note (PDF)"),
-                data=contract_note_pdf(portfolio["trades"][idx], load_profile()["fullName"], idx + 1),
+                data=contract_note_pdf(portfolio["trades"][idx], client_label(load_profile()), idx + 1),
                 file_name=f"contract_note_{idx + 1:05d}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
@@ -1440,7 +1444,7 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
                           label_visibility="collapsed")
     with s2:
         st.download_button(t("📄 Statement (PDF)"),
-            data=statement_pdf(portfolio, profile["fullName"], price_by_company, None if period == "All time" else period),
+            data=statement_pdf(portfolio, client_label(profile), price_by_company, None if period == "All time" else period),
             file_name=f"statement_{period.replace(' ', '_').lower()}.pdf",
             mime="application/pdf",
             use_container_width=True,
@@ -1801,8 +1805,20 @@ def render_price_updates(df: pd.DataFrame) -> None:
             st.info(t("No price changes detected."))
 
 
+def client_label(profile: dict) -> str:
+    """Name for statements/contract notes, with the ID masked."""
+    from data.profile import mask_id
+
+    label = profile["fullName"] or ""
+    if profile.get("idNumber"):
+        label += f" ({profile['idType']} {mask_id(profile['idNumber'])})"
+    return label
+
+
 def render_profile(df: pd.DataFrame) -> None:
     from data.profile import (
+        ID_TYPES,
+        mask_id,
         EXPERIENCE_LEVELS,
         GOALS,
         HORIZONS,
@@ -1822,17 +1838,29 @@ def render_profile(df: pd.DataFrame) -> None:
     if profile["lastUpdated"]:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(t("Name"), profile["fullName"] or "—")
-        c2.metric(t("Risk tolerance"), profile["riskTolerance"])
+        c2.metric(t("Risk tolerance"), t(profile["riskTolerance"]))
         c3.metric(t("Monthly budget (KES)"), f"{profile['monthlyBudget']:,.0f}")
         c4.metric(t("Last updated"), profile["lastUpdated"].replace("T", " "))
+        if profile["idNumber"]:
+            st.caption(f"🪪 {t(profile['idType'])}: {mask_id(profile['idNumber'])}")
     else:
         st.info(t("You haven't set up a profile yet — fill in the form below and save."))
 
     sectors = sorted(df["Sector"].unique())
     with st.form("profile_form"):
         st.markdown(t("**Personal details**"))
+        n1, n2, n3 = st.columns(3)
+        surname = n1.text_input(t("Surname *"), value=profile["surname"])
+        first_name = n2.text_input(t("First name *"), value=profile["firstName"])
+        second_name = n3.text_input(t("Second name"), value=profile["secondName"])
+        d1, d2 = st.columns([1, 2])
+        id_type = d1.selectbox(t("ID type"), ID_TYPES, index=ID_TYPES.index(profile["idType"])
+                               if profile["idType"] in ID_TYPES else 0, format_func=t)
+        id_number = d2.text_input(
+            t("ID / passport number"), value=profile["idNumber"], type="password",
+            help=t("Stored only in this app's data folder and shown masked (last 4 characters)."),
+        )
         p1, p2 = st.columns(2)
-        full_name = p1.text_input(t("Full name *"), value=profile["fullName"])
         email = p2.text_input(t("Email"), value=profile["email"])
         phone = p1.text_input(t("Phone"), value=profile["phone"], placeholder="+254 7xx xxx xxx")
         location = p2.text_input(t("County / town"), value=profile["location"])
@@ -1864,7 +1892,11 @@ def render_profile(df: pd.DataFrame) -> None:
             result = update_profile(
                 profile,
                 {
-                    "fullName": full_name,
+                    "surname": surname,
+                    "firstName": first_name,
+                    "secondName": second_name,
+                    "idType": id_type,
+                    "idNumber": id_number,
                     "email": email,
                     "phone": phone,
                     "location": location,
