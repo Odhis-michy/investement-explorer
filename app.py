@@ -268,6 +268,19 @@ HOME_CSS = """
 .up {color:#16a34a;font-weight:600}
 .dn {color:#dc2626;font-weight:600}
 .home-note {font-size:12px;opacity:.65;margin-top:18px}
+.sb-card {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px;margin-bottom:12px;
+  background:rgba(128,128,128,.06)}
+.sb-top {display:flex;align-items:center;gap:12px}
+.sb-avatar {width:46px;height:46px;border-radius:50%;background:#0f766e;color:#fff;font-weight:600;
+  display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.sb-name {font-weight:600;font-size:16px;line-height:1.2}
+.sb-sub {font-size:12px;opacity:.7;word-break:break-all}
+.sb-chips {display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.sb-chip {font-size:11px;border-radius:999px;padding:2px 9px;background:rgba(15,118,110,.18);color:#14b8a6}
+.sb-stats {display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sb-stat {border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:8px 10px}
+.sb-stat .l {font-size:11px;opacity:.7}
+.sb-stat .v {font-size:16px;font-weight:600}
 </style>
 """
 
@@ -308,6 +321,108 @@ def render_hero(raw: dict) -> None:
 """,
         unsafe_allow_html=True,
     )
+
+
+def render_sidebar(df: pd.DataFrame) -> None:
+    from data.portfolio import holdings_market_value, load_portfolio, reset_portfolio
+    from data.profile import HORIZONS, RISK_LEVELS, load_profile, reset_profile, update_profile
+    from data.watchlist import check_alerts, load_watchlist
+
+    profile = load_profile()
+    price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+    portfolio = load_portfolio()
+    total_value = portfolio["cash"] + holdings_market_value(portfolio, price_by_company)
+    baseline = portfolio["startingCash"] + portfolio.get("netDeposits", 0.0)
+    pnl_pct = (total_value - baseline) / baseline * 100 if baseline else 0.0
+    wl = load_watchlist()
+    triggered = check_alerts(wl, price_by_company)
+
+    sb = st.sidebar
+    sb.markdown("### 🧭 My dashboard")
+
+    # --- Profile card -----------------------------------------------------------
+    name = profile["fullName"]
+    if name:
+        initials = "".join(part[0] for part in name.split()[:2]).upper()
+        contact = " · ".join(html.escape(x) for x in (profile["email"], profile["location"]) if x)
+        chips = [profile["experience"], profile["riskTolerance"] + " risk", profile["horizon"]]
+        sb.markdown(
+            f"""
+<div class="sb-card">
+  <div class="sb-top">
+    <div class="sb-avatar">{html.escape(initials)}</div>
+    <div><div class="sb-name">{html.escape(name)}</div><div class="sb-sub">{contact or "No contact details yet"}</div></div>
+  </div>
+  <div class="sb-chips">{"".join(f'<span class="sb-chip">{html.escape(c)}</span>' for c in chips)}</div>
+</div>""",
+            unsafe_allow_html=True,
+        )
+    else:
+        sb.markdown(
+            '<div class="sb-card"><div class="sb-top"><div class="sb-avatar">?</div>'
+            '<div><div class="sb-name">Guest investor</div>'
+            '<div class="sb-sub">Set up your profile under Account settings below.</div></div></div></div>',
+            unsafe_allow_html=True,
+        )
+
+    # --- Account summary ------------------------------------------------------------
+    sb.markdown("**💼 Account**")
+    pnl_cls = "up" if pnl_pct >= 0 else "dn"
+    stats = [
+        ("Portfolio (KES)", f"{total_value:,.0f}"),
+        ("P&L", f'<span class="{pnl_cls}">{pnl_pct:+.2f}%</span>'),
+        ("Cash (KES)", f"{portfolio['cash']:,.0f}"),
+        ("Holdings", f"{len(portfolio['holdings'])}"),
+        ("Watching", f"{len(wl['watching'])}"),
+        ("Alerts hit", f"{len(triggered)}"),
+    ]
+    sb.markdown(
+        '<div class="sb-card sb-stats">'
+        + "".join(f'<div class="sb-stat"><div class="l">{l}</div><div class="v">{v}</div></div>' for l, v in stats)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    for t in triggered:
+        sb.warning(f"🔔 {t['company']} is {t['direction']} KES {t['target']:,.2f}", icon="🔔")
+
+    # --- Account settings -------------------------------------------------------------
+    # Keys include lastUpdated so fields refresh after the profile is saved elsewhere.
+    ver = profile["lastUpdated"] or "new"
+    with sb.expander("⚙️ Account settings", expanded=not name):
+        with st.form("sidebar_settings"):
+            new_name = st.text_input("Full name *", value=profile["fullName"], key=f"sb_name_{ver}")
+            new_email = st.text_input("Email", value=profile["email"], key=f"sb_email_{ver}")
+            new_phone = st.text_input("Phone", value=profile["phone"], key=f"sb_phone_{ver}")
+            new_risk = st.selectbox(
+                "Risk tolerance", RISK_LEVELS, index=RISK_LEVELS.index(profile["riskTolerance"]), key=f"sb_risk_{ver}"
+            )
+            new_horizon = st.selectbox(
+                "Investment horizon", HORIZONS, index=HORIZONS.index(profile["horizon"]), key=f"sb_hor_{ver}"
+            )
+            if st.form_submit_button("💾 Save settings", type="primary", use_container_width=True):
+                result = update_profile(
+                    profile,
+                    {
+                        "fullName": new_name,
+                        "email": new_email,
+                        "phone": new_phone,
+                        "riskTolerance": new_risk,
+                        "horizon": new_horizon,
+                    },
+                )
+                if result.ok:
+                    st.rerun()
+                st.error(result.message)
+        st.caption("Goals, sectors, budget and notes are in the 👤 Profile tab.")
+
+    with sb.expander("🧹 Reset data"):
+        st.caption("These can't be undone.")
+        if st.button("Reset paper portfolio", key="sb_reset_portfolio", use_container_width=True):
+            reset_portfolio()
+            st.rerun()
+        if st.button("Clear profile", key="sb_clear_profile", use_container_width=True):
+            reset_profile()
+            st.rerun()
 
 
 def _kpi_cards(cards: list[tuple[str, str, str]]) -> None:
@@ -440,14 +555,13 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
 
 
 def render_companies(df: pd.DataFrame) -> pd.DataFrame:
-    st.sidebar.header("Filters")
     sectors = sorted(df["Sector"].unique())
-    selected_sectors = st.sidebar.multiselect("Sector", sectors, default=sectors)
-
     max_price = float(df[PRICE_COL].max())
-    price_cap = st.sidebar.slider("Max market price (KES/share)", 0.0, max_price, max_price, step=1.0)
-
-    min_avg_return = st.sidebar.slider("Min average return (%)", -30.0, 30.0, -30.0, step=0.5)
+    with st.expander("🔎 Filters", expanded=True):
+        selected_sectors = st.multiselect("Sector", sectors, default=sectors)
+        f1, f2 = st.columns(2)
+        price_cap = f1.slider("Max market price (KES/share)", 0.0, max_price, max_price, step=1.0)
+        min_avg_return = f2.slider("Min average return (%)", -30.0, 30.0, -30.0, step=0.5)
 
     filtered = df[
         df["Sector"].isin(selected_sectors)
@@ -974,6 +1088,7 @@ def main() -> None:
     df = load_data(version)
     raw = load_raw()
     render_hero(raw)
+    render_sidebar(df)
 
     (
         tab_overview,
