@@ -25,6 +25,10 @@ plus a primer on how each major asset class works.
   investors works (equities, government/corporate bonds, money market funds, unit trusts, REITs,
   direct real estate, fixed deposits, SACCOs, pension funds, commodities, derivatives).
 - **Ask AI** — a Groq-powered chatbot that answers questions about the (filtered) dataset.
+- **Trade** — an exchange-style trading view for every sector: pick a sector and company, see a
+  candlestick or line chart (1M–5Y) and place market or limit buy/sell orders with 25–100% quick
+  amounts, plus open orders, trade history and holdings. Simulated with virtual cash — the chart
+  history is illustrative, reconstructed from yearly returns (`data/price_history.py`).
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).

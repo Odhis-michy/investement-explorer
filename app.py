@@ -533,7 +533,7 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
         st.markdown('<div class="mk-title">Top NSE companies by market capitalization</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="mk-sub">A snapshot of every NSE company tracked here: latest price, price change, '
-            "5-year average return and market cap. Tap ☆ to add a company to your watchlist.</div>",
+            "5-year average return and market cap. Tap ☆ to add a company to your watchlist, or Trade to open it in the trading view.</div>",
             unsafe_allow_html=True,
         )
     with c2:
@@ -586,12 +586,12 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
                 f'<td class="{ch_cls}">{ch_text}</td>'
                 f'<td>{r["Market Cap (KES Bn)"]:,.1f} Bn</td>'
                 f'<td>{r["Avg Return %"]:+.2f}%</td>'
-                f"<td>{star}</td>"
+                f'<td>{star}<a class="trade-link" target="_self" href="?trade={quote(r["Company"])}">Trade</a></td>'
                 "</tr>"
             )
         st.markdown(
             '<table class="mk-table"><thead><tr><th>Name</th><th>Price (KES)</th>'
-            f"<th>Change · {html.escape(period)}</th><th>Market cap (KES)</th><th>5-yr avg</th><th>Watch</th>"
+            f"<th>Change · {html.escape(period)}</th><th>Market cap (KES)</th><th>5-yr avg</th><th>Actions</th>"
             f"</tr></thead><tbody>{body}</tbody></table>",
             unsafe_allow_html=True,
         )
@@ -602,6 +602,273 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
         "Nothing on this page is financial advice.</div>",
         unsafe_allow_html=True,
     )
+
+
+TRADE_TAB = "📈 Trade"
+
+TRADE_CSS = """
+<style>
+.td-head {display:flex;flex-wrap:wrap;align-items:center;gap:28px;border:1px solid #2B3139;border-radius:14px;
+  padding:14px 18px;margin:4px 0 12px}
+.td-head .who {display:flex;align-items:center;gap:12px}
+.td-head .who b {font-size:18px}
+.td-head .who span {color:#848E9C;font-size:12px}
+.td-head .big {font-size:24px;font-weight:700}
+.td-stat .l {color:#848E9C;font-size:12px}
+.td-stat .v {font-size:14px;font-weight:600}
+.td-note {color:#848E9C;font-size:11px;margin-top:-6px}
+.td-sum {display:flex;justify-content:space-between;font-size:13px;color:#848E9C;margin:2px 0}
+.td-sum b {color:#EAECEF}
+.st-key-td_submit_buy button {background:#0ECB81 !important;border-color:#0ECB81 !important;color:#0B0E11 !important;
+  font-weight:700}
+.st-key-td_submit_sell button {background:#F6465D !important;border-color:#F6465D !important;color:#fff !important;
+  font-weight:700}
+.td-list {width:100%;border-collapse:collapse;font-size:13px}
+.td-list td {padding:7px 4px;border-bottom:1px solid #1E2329}
+.td-list td:not(:first-child) {text-align:right}
+.td-list a {color:#EAECEF !important;text-decoration:none}
+.td-list a:hover {color:#F0B90B !important}
+.td-list tr.sel td {background:#1E2329}
+.trade-link {color:#F0B90B !important;text-decoration:none !important;font-weight:600;margin-left:12px}
+</style>
+"""
+
+RANGES = {"1M": (21, None), "3M": (63, None), "6M": (126, None), "1Y": (252, "W"), "5Y": (None, "W")}
+
+
+@st.cache_data
+def _history(company_json: str, return_years: tuple[str, ...], today_iso: str) -> pd.DataFrame:
+    from data.price_history import build_history
+
+    return build_history(json.loads(company_json), list(return_years), date.fromisoformat(today_iso))
+
+
+def _price_chart(hist: pd.DataFrame, kind: str, price: float, avg_cost: float | None):
+    import altair as alt
+
+    y_scale = alt.Scale(zero=False)
+    x = alt.X("date:T", title=None, axis=alt.Axis(grid=False))
+    tooltip = [
+        alt.Tooltip("date:T", title="Date"),
+        alt.Tooltip("open:Q", format=",.2f"),
+        alt.Tooltip("high:Q", format=",.2f"),
+        alt.Tooltip("low:Q", format=",.2f"),
+        alt.Tooltip("close:Q", format=",.2f"),
+    ]
+    if kind == "Candles":
+        base = alt.Chart(hist).encode(
+            x=x,
+            color=alt.condition("datum.open <= datum.close", alt.value(UP), alt.value(DOWN)),
+            tooltip=tooltip,
+        )
+        bar_width = max(1.5, min(10.0, 620 / max(len(hist), 1) * 0.7))
+        chart = base.mark_rule().encode(
+            y=alt.Y("low:Q", scale=y_scale, title="KES"), y2="high:Q"
+        ) + base.mark_bar(size=bar_width).encode(y="open:Q", y2="close:Q")
+    else:
+        base = alt.Chart(hist).encode(x=x, tooltip=tooltip)
+        chart = base.mark_area(color=ACCENT, opacity=0.12).encode(
+            y=alt.Y("close:Q", scale=y_scale, title="KES")
+        ) + base.mark_line(color=ACCENT, strokeWidth=2).encode(y="close:Q")
+
+    lines = [{"label": f"Last {price:,.2f}", "y": price, "c": ACCENT}]
+    if avg_cost:
+        lines.append({"label": f"Your avg cost {avg_cost:,.2f}", "y": avg_cost, "c": "#848E9C"})
+    ref = alt.Chart(pd.DataFrame(lines))
+    chart += ref.mark_rule(strokeDash=[4, 4]).encode(y="y:Q", color=alt.Color("c:N", scale=None))
+    chart += ref.mark_text(align="left", dx=4, dy=-6, fontSize=11).encode(
+        y="y:Q", x=alt.value(0), text="label:N", color=alt.Color("c:N", scale=None)
+    )
+    return chart.properties(height=380)
+
+
+def _set_qty(qty_key: str, pct_key: str, max_shares: int) -> None:
+    pct = st.session_state.get(pct_key)
+    if pct:
+        st.session_state[qty_key] = int(max_shares * int(pct.rstrip("%")) / 100)
+
+
+def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
+    from urllib.parse import quote
+
+    from data.portfolio import buy, cancel_order, load_portfolio, place_limit_order, sell
+
+    st.markdown(TRADE_CSS, unsafe_allow_html=True)
+    sectors = sorted(df["Sector"].unique())
+    companies = {c["company"]: c for c in raw["companies"]}
+
+    # A ?trade=<company> link (from the markets table or the list below) selects that company once.
+    wanted = st.query_params.get("trade")
+    if wanted in companies and st.session_state.get("td_last_param") != wanted:
+        st.session_state["td_last_param"] = wanted
+        st.session_state["td_sector"] = "All sectors"
+        st.session_state["td_company"] = wanted
+
+    sector = st.pills(
+        "Sector", ["All sectors", *sectors], default="All sectors", key="td_sector", label_visibility="collapsed"
+    ) or "All sectors"
+    options = sorted(df["Company"] if sector == "All sectors" else df.loc[df["Sector"] == sector, "Company"])
+    if st.session_state.get("td_company") not in options:
+        st.session_state["td_company"] = options[0]
+    company = st.selectbox("Company", options, key="td_company")
+
+    row = df.loc[df["Company"] == company].iloc[0]
+    price = float(row[PRICE_COL])
+    prev = row[PREV_PRICE_COL]
+    change = (price / prev - 1) * 100 if pd.notna(prev) and prev else 0.0
+    ch_text, ch_cls = _signed(change)
+
+    portfolio = load_portfolio()
+    holding = next((h for h in portfolio["holdings"] if h["company"] == company), None)
+    held = holding["shares"] if holding else 0.0
+
+    # --- Header strip ---------------------------------------------------------------
+    stats = [
+        ("Change", f'<span class="{ch_cls}">{ch_text}</span>'),
+        ("Previous", f"{prev:,.2f}" if pd.notna(prev) else "—"),
+        ("Market cap", f'{row["Market Cap (KES Bn)"]:,.1f} Bn'),
+        ("5-yr avg return", f'{row["Avg Return %"]:+.2f}%'),
+        ("You hold", f"{held:g} shares"),
+    ]
+    st.markdown(
+        f'<div class="td-head"><div class="who">{_icon(company, row["Sector"], sectors, "lg")}'
+        f'<div><b>{html.escape(company)}</b><br><span>{html.escape(row["Sector"])} · NSE · KES</span></div></div>'
+        f'<div class="big {ch_cls}">{price:,.2f}</div>'
+        + "".join(f'<div class="td-stat"><div class="l">{l}</div><div class="v">{v}</div></div>' for l, v in stats)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
+    chart_col, order_col = st.columns([7, 3], gap="medium")
+
+    # --- Chart ---------------------------------------------------------------------------
+    with chart_col:
+        r1, r2 = st.columns([3, 2])
+        rng = r1.segmented_control("Range", list(RANGES), default="6M", key="td_range",
+                                   label_visibility="collapsed") or "6M"
+        kind = r2.segmented_control("Chart", ["Candles", "Line"], default="Candles", key="td_kind",
+                                    label_visibility="collapsed") or "Candles"
+        hist = _history(json.dumps(companies[company], sort_keys=True), tuple(raw["returnYears"]),
+                        date.today().isoformat())
+        n_days, rule = RANGES[rng]
+        view = hist.tail(n_days) if n_days else hist
+        if rule:
+            from data.price_history import resample
+
+            view = resample(view, rule)
+        st.altair_chart(_price_chart(view, kind, price, holding["avgCost"] if holding else None),
+                        use_container_width=True)
+        st.markdown(
+            '<div class="td-note">Illustrative price history reconstructed from yearly returns — '
+            "not real trading data. The last point is the current market price.</div>",
+            unsafe_allow_html=True,
+        )
+
+    # --- Order panel ----------------------------------------------------------------------
+    with order_col:
+        if msg := st.session_state.pop("td_msg", None):
+            (st.success if msg[0] else st.error)(msg[1])
+
+        side = st.segmented_control("Side", ["Buy", "Sell"], default="Buy", key="td_side",
+                                    label_visibility="collapsed") or "Buy"
+        otype = st.segmented_control("Order type", ["Market", "Limit"], default="Market", key="td_type",
+                                     label_visibility="collapsed") or "Market"
+        if otype == "Limit":
+            exec_price = st.number_input("Limit price (KES)", min_value=0.01, value=price, step=0.05,
+                                         format="%.2f", key=f"td_limit_{company}")
+        else:
+            exec_price = price
+            st.markdown(f'<div class="td-sum"><span>Market price</span><b>KES {price:,.2f}</b></div>',
+                        unsafe_allow_html=True)
+
+        max_shares = int(portfolio["cash"] // exec_price) if side == "Buy" else int(held)
+        qty_key, pct_key = f"td_qty_{company}_{side}", f"td_pct_{company}_{side}"
+        qty = st.number_input("Shares", min_value=0, step=1, key=qty_key)
+        st.segmented_control("Amount", ["25%", "50%", "75%", "100%"], key=pct_key, label_visibility="collapsed",
+                             on_change=_set_qty, args=(qty_key, pct_key, max_shares))
+
+        avail = f"KES {portfolio['cash']:,.2f}" if side == "Buy" else f"{held:g} shares"
+        st.markdown(
+            f'<div class="td-sum"><span>Available</span><b>{avail}</b></div>'
+            f'<div class="td-sum"><span>Max {side.lower()}</span><b>{max_shares:,} shares</b></div>'
+            f'<div class="td-sum"><span>Total</span><b>KES {qty * exec_price:,.2f}</b></div>',
+            unsafe_allow_html=True,
+        )
+
+        if st.button(f"{side} {company}", key=f"td_submit_{side.lower()}", use_container_width=True):
+            if qty <= 0:
+                st.session_state["td_msg"] = (False, "Enter how many shares to trade.")
+            elif otype == "Market":
+                result = (buy if side == "Buy" else sell)(portfolio, company, float(qty), price)
+                st.session_state["td_msg"] = (result.ok, result.message)
+            else:
+                result = place_limit_order(portfolio, side.upper(), company, float(qty), float(exec_price))
+                st.session_state["td_msg"] = (result.ok, result.message)
+            st.rerun()
+        st.caption("Simulated trading with virtual cash — no real orders or money.")
+
+        # Mini market list for the chosen sector — click a name to trade it.
+        st.markdown(f"**{html.escape(sector)}**")
+        rows = ""
+        for _, r in df[df["Company"].isin(options)].sort_values("Market Cap (KES Bn)", ascending=False).iterrows():
+            c_prev = r[PREV_PRICE_COL]
+            c_chg = (r[PRICE_COL] / c_prev - 1) * 100 if pd.notna(c_prev) and c_prev else 0.0
+            t, c = _signed(c_chg)
+            sel = ' class="sel"' if r["Company"] == company else ""
+            rows += (
+                f'<tr{sel}><td><a target="_self" href="?trade={quote(r["Company"])}">'
+                f'{html.escape(r["Company"])}</a></td><td>{r[PRICE_COL]:,.2f}</td><td class="{c}">{t}</td></tr>'
+            )
+        st.markdown(f'<table class="td-list">{rows}</table>', unsafe_allow_html=True)
+
+    # --- Orders, history, holdings -----------------------------------------------------------
+    t_open, t_hist, t_hold = st.tabs(
+        [f"Open orders ({len(portfolio['openOrders'])})", "Trade history", "Holdings"]
+    )
+    with t_open:
+        if not portfolio["openOrders"]:
+            st.caption("No open orders. Limit orders wait here until the market price reaches your limit.")
+        for o in portfolio["openOrders"]:
+            c1, c2 = st.columns([6, 1])
+            color = "up" if o["side"] == "BUY" else "dn"
+            c1.markdown(
+                f'<span class="{color}">{o["side"]}</span> {o["shares"]:g} × **{o["company"]}** '
+                f'@ limit KES {o["limit"]:,.2f} · now KES {float(df.loc[df["Company"] == o["company"], PRICE_COL].iloc[0]):,.2f}'
+                f' · placed {o["placedAt"][:16].replace("T", " ")}',
+                unsafe_allow_html=True,
+            )
+            if c2.button("Cancel", key=f"td_cancel_{o['id']}"):
+                result = cancel_order(portfolio, o["id"])
+                st.session_state["td_msg"] = (result.ok, result.message)
+                st.rerun()
+    with t_hist:
+        trades = [t for t in reversed(portfolio["trades"]) if t["action"] in ("BUY", "SELL")]
+        if trades:
+            st.dataframe(pd.DataFrame(trades), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No trades yet.")
+    with t_hold:
+        if portfolio["holdings"]:
+            price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Company": h["company"],
+                            "Shares": h["shares"],
+                            "Avg cost": round(h["avgCost"], 2),
+                            "Price": price_by_company.get(h["company"], h["avgCost"]),
+                            "Value (KES)": round(h["shares"] * price_by_company.get(h["company"], h["avgCost"]), 2),
+                            "P&L %": round((price_by_company.get(h["company"], h["avgCost"]) / h["avgCost"] - 1) * 100, 2),
+                        }
+                        for h in portfolio["holdings"]
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption("No holdings yet.")
 
 
 def render_companies(df: pd.DataFrame) -> pd.DataFrame:
@@ -697,42 +964,8 @@ def render_trading(df: pd.DataFrame) -> None:
     c3.metric("Total portfolio (KES)", f"{total_value:,.2f}")
     c4.metric("Total P&L (KES)", f"{pnl:,.2f}", f"{pnl_pct:+.2f}%")
 
-    buy_col, sell_col = st.columns(2)
+    st.info("To buy or sell shares, use the **📈 Trade** tab.", icon="📈")
 
-    with buy_col:
-        st.markdown("**Buy shares**")
-        company = st.selectbox("Company", df["Company"], key="buy_company")
-        price = float(price_by_company[company])
-        st.caption(f"Current price: KES {price:,.2f}/share")
-        shares = st.number_input("Shares to buy", min_value=1, step=1, key="buy_shares")
-        st.caption(f"Estimated cost: KES {shares * price:,.2f}")
-        if st.button("🟢 Buy", key="buy_btn"):
-            result = buy(portfolio, company, float(shares), price)
-            (st.success if result.ok else st.error)(result.message)
-            if result.ok:
-                st.rerun()
-
-    with sell_col:
-        st.markdown("**Sell shares**")
-        held = {h["company"]: h["shares"] for h in portfolio["holdings"]}
-        if not held:
-            st.info("You have no holdings to sell yet.")
-        else:
-            company_s = st.selectbox("Company", list(held.keys()), key="sell_company")
-            held_shares = held[company_s]
-            price_s = float(price_by_company.get(company_s, 0.0))
-            st.caption(f"You hold {held_shares:g} share(s) — current price: KES {price_s:,.2f}/share")
-            shares_s = st.number_input(
-                "Shares to sell", min_value=1, max_value=int(held_shares), step=1, key="sell_shares"
-            )
-            st.caption(f"Estimated proceeds: KES {shares_s * price_s:,.2f}")
-            if st.button("🔴 Sell", key="sell_btn"):
-                result = sell(portfolio, company_s, float(shares_s), price_s)
-                (st.success if result.ok else st.error)(result.message)
-                if result.ok:
-                    st.rerun()
-
-    st.divider()
     st.markdown("**Cash management (deposit / withdraw)**")
     st.caption("Simulates moving cash in or out of your virtual brokerage account.")
     dep_col, wd_col = st.columns(2)
@@ -1137,11 +1370,18 @@ def main() -> None:
     version = st.session_state.get("data_version", 0)
     df = load_data(version)
     raw = load_raw()
+
+    from data.portfolio import load_portfolio, process_open_orders
+
+    for result in process_open_orders(load_portfolio(), dict(zip(df["Company"], df[PRICE_COL]))):
+        st.toast(result.message, icon="✅" if result.ok else "⚠️")
+
     render_hero(raw)
     render_sidebar(df)
 
     (
         tab_overview,
+        tab_trade_desk,
         tab_companies,
         tab_watchlist,
         tab_trade,
@@ -1155,9 +1395,10 @@ def main() -> None:
     ) = st.tabs(
         [
             "🏠 Overview",
+            TRADE_TAB,
             "📊 Companies & Sectors",
             "⭐ Watchlist",
-            "💼 Trade / Portfolio",
+            "💼 Portfolio",
             "🏛️ Bonds & Funds",
             "🗓️ IPO Calendar",
             "📰 Research & News",
@@ -1165,11 +1406,15 @@ def main() -> None:
             "🎓 Asset Classes",
             "🤖 Ask AI",
             "👤 Profile",
-        ]
+        ],
+        default=TRADE_TAB if "trade" in st.query_params else None,
     )
 
     with tab_overview:
         render_overview(df, raw)
+
+    with tab_trade_desk:
+        render_trade_desk(df, raw)
 
     with tab_companies:
         filtered = render_companies(df)

@@ -27,6 +27,7 @@ def _default_portfolio() -> dict:
         "netDeposits": 0.0,
         "holdings": [],
         "trades": [],
+        "openOrders": [],
     }
 
 
@@ -38,6 +39,9 @@ def load_portfolio() -> dict:
     portfolio = json.loads(PORTFOLIO_PATH.read_text())
     if "netDeposits" not in portfolio:
         portfolio["netDeposits"] = 0.0
+        save_portfolio(portfolio)
+    if "openOrders" not in portfolio:
+        portfolio["openOrders"] = []
         save_portfolio(portfolio)
     return portfolio
 
@@ -143,3 +147,68 @@ def _log_trade(portfolio: dict, company: str, action: str, shares: float, price:
 
 def holdings_market_value(portfolio: dict, price_by_company: dict[str, float]) -> float:
     return sum(h["shares"] * price_by_company.get(h["company"], h["avgCost"]) for h in portfolio["holdings"])
+
+
+# --- Limit orders ---------------------------------------------------------------
+# A limit order waits in portfolio["openOrders"] until the market price reaches the
+# limit: a BUY fills when price <= limit, a SELL when price >= limit. Fills happen
+# at the (equal-or-better) market price whenever process_open_orders() runs (on every app refresh).
+
+
+def place_limit_order(portfolio: dict, side: str, company: str, shares: float, limit: float) -> TradeResult:
+    if shares <= 0 or limit <= 0:
+        return TradeResult(False, "Shares and limit price must be greater than zero.")
+    if side == "BUY" and shares * limit > portfolio["cash"]:
+        return TradeResult(
+            False, f"Insufficient cash: need KES {shares * limit:,.2f}, have KES {portfolio['cash']:,.2f}."
+        )
+    if side == "SELL":
+        holding = _find_holding(portfolio, company)
+        held = holding["shares"] if holding else 0
+        if shares > held:
+            return TradeResult(False, f"You only hold {held:g} share(s) of {company}.")
+
+    order_id = max((o["id"] for o in portfolio["openOrders"]), default=0) + 1
+    portfolio["openOrders"].append(
+        {
+            "id": order_id,
+            "placedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "company": company,
+            "side": side,
+            "shares": shares,
+            "limit": limit,
+        }
+    )
+    save_portfolio(portfolio)
+    return TradeResult(True, f"Limit {side.lower()} placed: {shares:g} {company} @ KES {limit:,.2f}.")
+
+
+def cancel_order(portfolio: dict, order_id: int) -> TradeResult:
+    before = len(portfolio["openOrders"])
+    portfolio["openOrders"] = [o for o in portfolio["openOrders"] if o["id"] != order_id]
+    if len(portfolio["openOrders"]) == before:
+        return TradeResult(False, "Order not found.")
+    save_portfolio(portfolio)
+    return TradeResult(True, f"Order #{order_id} cancelled.")
+
+
+def process_open_orders(portfolio: dict, price_by_company: dict[str, float]) -> list[TradeResult]:
+    """Fill any open limit orders whose limit has been reached. Returns one result per fill/cancel."""
+    results = []
+    for order in list(portfolio["openOrders"]):
+        price = price_by_company.get(order["company"])
+        if price is None:
+            continue
+        reached = price <= order["limit"] if order["side"] == "BUY" else price >= order["limit"]
+        if not reached:
+            continue
+        portfolio["openOrders"].remove(order)
+        trade = buy if order["side"] == "BUY" else sell
+        # Fill at the current market price, which is at or better than the limit.
+        result = trade(portfolio, order["company"], order["shares"], price)
+        if not result.ok:
+            result = TradeResult(False, f"Limit order #{order['id']} cancelled — {result.message}")
+        results.append(result)
+    if results:
+        save_portfolio(portfolio)
+    return results
