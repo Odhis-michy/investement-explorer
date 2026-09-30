@@ -149,22 +149,41 @@ def authenticate(identifier: str, password: str) -> tuple[bool, str, dict | None
     if locked_until and datetime.fromisoformat(locked_until) > _now():
         mins = max(1, int((datetime.fromisoformat(locked_until) - _now()).total_seconds() // 60) + 1)
         return False, f"Too many failed attempts. Try again in about {mins} minute(s).", None
+    if not verify_password(password, pw_hash):
+        return False, record_failed_attempt(user_id) or generic, None
     with engine().begin() as conn:
-        if not verify_password(password, pw_hash):
-            failed += 1
-            lock = (_now() + timedelta(minutes=LOCK_MINUTES)).isoformat() if failed >= MAX_FAILED else None
-            conn.execute(
-                text("UPDATE users SET failed_attempts = :f, locked_until = :l WHERE id = :i"),
-                {"f": 0 if lock else failed, "l": lock, "i": user_id},
-            )
-            if lock:
-                return False, f"Too many failed attempts — account locked for {LOCK_MINUTES} minutes.", None
-            return False, generic, None
         conn.execute(
             text("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = :t WHERE id = :i"),
             {"t": now_iso(), "i": user_id},
         )
     return True, "Signed in.", _public(row)
+
+
+def check_password(user_id: str, password: str) -> bool:
+    with engine().connect() as conn:
+        row = _user_row(conn, "id", user_id)
+    return bool(row) and verify_password(password, row[3])
+
+
+def record_failed_attempt(user_id: str) -> str | None:
+    """Count a wrong password or two-step code; returns a lock message once the limit is reached."""
+    with engine().begin() as conn:
+        failed = (conn.execute(text("SELECT failed_attempts FROM users WHERE id = :i"), {"i": user_id}).scalar() or 0) + 1
+        lock = (_now() + timedelta(minutes=LOCK_MINUTES)).isoformat() if failed >= MAX_FAILED else None
+        conn.execute(
+            text("UPDATE users SET failed_attempts = :f, locked_until = :l WHERE id = :i"),
+            {"f": 0 if lock else failed, "l": lock, "i": user_id},
+        )
+    return f"Too many failed attempts — account locked for {LOCK_MINUTES} minutes." if lock else None
+
+
+def is_locked(user_id: str) -> str | None:
+    with engine().connect() as conn:
+        until = conn.execute(text("SELECT locked_until FROM users WHERE id = :i"), {"i": user_id}).scalar()
+    if until and datetime.fromisoformat(until) > _now():
+        mins = max(1, int((datetime.fromisoformat(until) - _now()).total_seconds() // 60) + 1)
+        return f"Too many failed attempts. Try again in about {mins} minute(s)."
+    return None
 
 
 def change_password(user_id: str, current: str, new: str) -> tuple[bool, str]:
@@ -183,7 +202,7 @@ def change_password(user_id: str, current: str, new: str) -> tuple[bool, str]:
 
 def delete_account(user_id: str) -> None:
     with engine().begin() as conn:
-        for table in ("documents", "sessions", "password_resets"):
+        for table in ("documents", "sessions", "password_resets", "login_codes"):
             conn.execute(text(f"DELETE FROM {table} WHERE user_id = :i"), {"i": user_id})
         conn.execute(text("DELETE FROM users WHERE id = :i"), {"i": user_id})
 

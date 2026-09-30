@@ -8,3 +8,4 @@ lxml
 fpdf2
 sqlalchemy
 psycopg2-binary
+qrcode

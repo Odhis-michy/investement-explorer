@@ -455,6 +455,11 @@ def render_auth_page() -> None:
         )
         if msg := st.session_state.pop("auth_flash", None):
             st.success(msg)
+        if msg := st.session_state.pop("auth_flash_error", None):
+            st.error(msg)
+        if st.session_state.get("pending_2fa"):
+            render_twofa_challenge()
+            return
         tab_in, tab_up, tab_reset = st.tabs([t("Sign in"), t("Create account"), t("Forgot password")])
 
         with tab_in, st.form("sign_in_form"):
@@ -464,7 +469,15 @@ def render_auth_page() -> None:
             if st.form_submit_button(t("Sign in"), type="primary", use_container_width=True):
                 ok, msg, user = auth.authenticate(identifier, password)
                 if ok:
+                    import time
+
+                    from data.twofa import status as twofa_status
+
                     st.session_state.pop("signed_out", None)
+                    if twofa_status(user["id"])["enabled"]:
+                        st.session_state["pending_2fa"] = {"user": user, "remember": remember,
+                                                           "expires": time.time() + TWOFA_TIMEOUT_SECONDS}
+                        st.rerun()
                     _start_session(user, remember, t("Welcome back!"))
                 st.error(t(msg))
 
@@ -506,6 +519,144 @@ def render_auth_page() -> None:
         if is_sqlite() and Path("/mount/src").exists():  # running on Streamlit Community Cloud
             st.warning(t("This app is using temporary storage — accounts may be lost when it restarts. "
                          "The app owner should set DATABASE_URL."), icon="⚠️")
+
+
+TWOFA_TIMEOUT_SECONDS = 600
+
+
+def render_twofa_challenge() -> None:
+    """Second sign-in step: authenticator / SMS code, or a recovery code."""
+    import time
+
+    from data import auth, twofa
+
+    pending = st.session_state["pending_2fa"]
+    user = pending["user"]
+    if time.time() > pending["expires"]:
+        st.session_state.pop("pending_2fa", None)
+        st.session_state["auth_flash"] = t("Verification timed out — sign in again.")
+        st.rerun()
+
+    state = twofa.status(user["id"])
+    if state["method"] == "sms" and not pending.get("sent_at"):
+        ok, msg = twofa.send_login_code(user["id"])
+        pending.update(sent_at=time.time(), sms_msg=msg, sms_ok=ok)
+
+    st.markdown(f"#### 🔐 {t('Two-step verification')}")
+    if state["method"] == "totp":
+        st.caption(t("Open your authenticator app and enter the 6-digit code for Kenya Invest."))
+    else:
+        (st.caption if pending.get("sms_ok") else st.error)(t(pending.get("sms_msg", "")))
+
+    use_recovery = st.toggle(t("Use a recovery code instead"), key="twofa_use_recovery")
+    with st.form("twofa_form"):
+        code = st.text_input(t("Recovery code") if use_recovery else t("6-digit code"),
+                             max_chars=12 if use_recovery else 6,
+                             placeholder="XXXX-XXXX" if use_recovery else "123456")
+        if st.form_submit_button(t("Verify"), type="primary", use_container_width=True):
+            locked = auth.is_locked(user["id"])
+            if locked:
+                st.session_state.pop("pending_2fa", None)
+                st.session_state["auth_flash_error"] = t(locked)
+                st.rerun()
+            ok, msg = twofa.verify_login(user["id"], code, recovery=use_recovery)
+            if ok:
+                st.session_state.pop("pending_2fa", None)
+                _start_session(user, pending["remember"], t(msg) if use_recovery else t("Welcome back!"))
+            if "locked" in msg:
+                st.session_state.pop("pending_2fa", None)
+                st.session_state["auth_flash_error"] = t(msg)
+                st.rerun()
+            st.error(t(msg))
+
+    c1, c2 = st.columns(2)
+    if state["method"] == "sms" and c1.button(t("Resend code"), use_container_width=True,
+                                              disabled=time.time() - pending.get("sent_at", 0) < 30):
+        pending.pop("sent_at", None)
+        st.rerun()
+    if c2.button(t("Cancel"), key="twofa_cancel", use_container_width=True):
+        st.session_state.pop("pending_2fa", None)
+        st.rerun()
+
+
+def _show_recovery_codes(codes: list[str], key: str) -> None:
+    st.warning(t("Save these recovery codes somewhere safe. Each works once if you lose your phone. "
+                 "They won't be shown again."), icon="🔑")
+    st.code("\n".join(codes), language=None)
+    st.download_button(t("⬇️ Download codes"), data="Kenya Invest recovery codes\n\n" + "\n".join(codes),
+                       file_name="kenya-invest-recovery-codes.txt", mime="text/plain",
+                       use_container_width=True, key=f"{key}_dl")
+    if st.button(t("I've saved them"), key=f"{key}_done", use_container_width=True):
+        st.session_state.pop("twofa_new_codes", None)
+        st.rerun()
+
+
+def render_twofa_settings(sb) -> None:
+    """Sidebar: turn two-step verification on/off and manage recovery codes."""
+    from data import auth, twofa
+    from data.notify import sms_configured
+    from data.profile import load_profile
+
+    user = st.session_state["user"]
+    state = twofa.status(user["id"])
+    label = "🔐 " + t("Two-step verification") + (" ✅" if state["enabled"] else "")
+    with sb.expander(label, expanded=bool(st.session_state.get("twofa_new_codes"))):
+        if st.session_state.get("twofa_new_codes"):
+            _show_recovery_codes(st.session_state["twofa_new_codes"], "twofa_codes")
+            return
+
+        if state["enabled"]:
+            how = t("Authenticator app") if state["method"] == "totp" else f"SMS {twofa.mask_phone(state['phone'])}"
+            st.success(f"{t('On')} — {how}")
+            st.caption(f"{state['recoveryLeft']} " + t("recovery codes left."))
+            with st.form("twofa_manage_form"):
+                pw = st.text_input(t("Current password"), type="password")
+                b1, b2 = st.columns(2)
+                new_codes = b1.form_submit_button(t("New codes"), use_container_width=True)
+                turn_off = b2.form_submit_button(t("Turn off"), use_container_width=True)
+                if new_codes or turn_off:
+                    if not auth.check_password(user["id"], pw):
+                        st.error(t("Your current password is incorrect."))
+                    elif turn_off:
+                        twofa.disable(user["id"])
+                        st.rerun()
+                    else:
+                        st.session_state["twofa_new_codes"] = twofa.regenerate_recovery_codes(user["id"])
+                        st.rerun()
+            return
+
+        st.caption(t("Add a second step when signing in: a code from your phone after your password."))
+        methods = ["totp"] + (["sms"] if sms_configured() else [])
+        method = st.radio(t("Method"), methods, horizontal=True, key="twofa_method_pick",
+                          format_func=lambda m: t("Authenticator app") if m == "totp" else "SMS")
+        if method == "totp":
+            secret = st.session_state.setdefault("twofa_setup_secret", twofa.new_totp_secret())
+            st.caption(t("1. Scan with Google Authenticator, Microsoft Authenticator or Authy:"))
+            st.image(twofa.qr_png(twofa.totp_uri(user["username"], secret)), width=170)
+            st.caption(t("Or enter this key manually:"))
+            st.code(" ".join(secret[i:i + 4] for i in range(0, len(secret), 4)), language=None)
+            with st.form("twofa_totp_form"):
+                code = st.text_input(t("2. Enter the 6-digit code shown in the app"), max_chars=6)
+                if st.form_submit_button(t("Turn on"), type="primary", use_container_width=True):
+                    ok, msg, codes = twofa.enable_totp(user["id"], secret, code)
+                    if ok:
+                        st.session_state.pop("twofa_setup_secret", None)
+                        st.session_state["twofa_new_codes"] = codes
+                        st.rerun()
+                    st.error(t(msg))
+        else:
+            phone = st.text_input(t("Phone"), value=load_profile().get("phone", ""), key="twofa_phone")
+            if st.button(t("Send code"), key="twofa_send", use_container_width=True):
+                ok, msg = twofa.start_sms_setup(user["id"], phone)
+                (st.success if ok else st.error)(t(msg))
+            with st.form("twofa_sms_form"):
+                code = st.text_input(t("6-digit code"), max_chars=6)
+                if st.form_submit_button(t("Turn on"), type="primary", use_container_width=True):
+                    ok, msg, codes = twofa.enable_sms(user["id"], phone, code)
+                    if ok:
+                        st.session_state["twofa_new_codes"] = codes
+                        st.rerun()
+                    st.error(t(msg))
 
 
 def render_account_box(sb) -> None:
@@ -594,6 +745,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
     sb = st.sidebar
     render_preferences(sb)
     render_account_box(sb)
+    render_twofa_settings(sb)
     sb.markdown(t("### 🧭 My dashboard"))
 
     # --- Profile card -----------------------------------------------------------

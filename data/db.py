@@ -13,7 +13,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 DEFAULT_URL = f"sqlite:///{Path(__file__).parent / 'app.db'}"
@@ -48,7 +48,25 @@ SCHEMA = [
         expires_at TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0
     )""",
+    """CREATE TABLE IF NOT EXISTS login_codes (
+        user_id TEXT PRIMARY KEY,
+        purpose TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0
+    )""",
 ]
+
+# Columns added after the first release; created on existing databases by engine().
+ADDED_COLUMNS = {
+    "users": {
+        "twofa_method": "TEXT",
+        "totp_secret": "TEXT",
+        "twofa_phone": "TEXT",
+        "recovery_codes": "TEXT",
+        "last_totp_step": "INTEGER",
+    },
+}
 
 _engine: Engine | None = None
 _lock = threading.Lock()
@@ -76,6 +94,11 @@ def engine() -> Engine:
             with _engine.begin() as conn:
                 for statement in SCHEMA:
                     conn.execute(text(statement))
+                existing = {t: {c["name"] for c in inspect(conn).get_columns(t)} for t in ADDED_COLUMNS}
+                for table, columns in ADDED_COLUMNS.items():
+                    for name, kind in columns.items():
+                        if name not in existing[table]:
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {kind}"))
         return _engine
 
 

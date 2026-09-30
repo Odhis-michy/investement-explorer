@@ -52,6 +52,8 @@ plus a primer on how each major asset class works.
   database on Streamlit Community Cloud, whose disk is wiped on restart). Passwords are salted PBKDF2
   hashes; sessions use a cookie (30 days with “Keep me signed in”); 5 wrong passwords lock the account
   for 15 minutes. The first account created imports any older `data/*.json` files.
+  **Two-step verification** (optional, per user, from the sidebar): an authenticator app (QR code, RFC 6238
+  codes) or SMS codes, plus 8 single-use recovery codes.
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).
