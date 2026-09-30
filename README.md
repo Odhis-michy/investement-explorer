@@ -25,6 +25,9 @@ plus a primer on how each major asset class works.
   investors works (equities, government/corporate bonds, money market funds, unit trusts, REITs,
   direct real estate, fixed deposits, SACCOs, pension funds, commodities, derivatives).
 - **Ask AI** — a Groq-powered chatbot that answers questions about the (filtered) dataset.
+- **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
+  preferred sectors, monthly budget) that can be updated any time; saved locally to
+  `data/profile.json` (git-ignored).
 
 ## Setup
 

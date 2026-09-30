@@ -651,6 +651,101 @@ def render_price_updates(df: pd.DataFrame) -> None:
             st.info("No price changes detected.")
 
 
+def render_profile(df: pd.DataFrame) -> None:
+    from data.profile import (
+        EXPERIENCE_LEVELS,
+        GOALS,
+        HORIZONS,
+        RISK_LEVELS,
+        load_profile,
+        reset_profile,
+        update_profile,
+    )
+
+    profile = load_profile()
+
+    st.subheader("👤 My investor profile")
+    st.caption(
+        "Keep your details and investment preferences up to date — you can edit and save this "
+        "any time. Stored locally in `data/profile.json`."
+    )
+
+    if profile["lastUpdated"]:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Name", profile["fullName"] or "—")
+        c2.metric("Risk tolerance", profile["riskTolerance"])
+        c3.metric("Monthly budget (KES)", f"{profile['monthlyBudget']:,.0f}")
+        c4.metric("Last updated", profile["lastUpdated"].replace("T", " "))
+    else:
+        st.info("You haven't set up a profile yet — fill in the form below and save.")
+
+    sectors = sorted(df["Sector"].unique())
+    with st.form("profile_form"):
+        st.markdown("**Personal details**")
+        p1, p2 = st.columns(2)
+        full_name = p1.text_input("Full name *", value=profile["fullName"])
+        email = p2.text_input("Email", value=profile["email"])
+        phone = p1.text_input("Phone", value=profile["phone"], placeholder="+254 7xx xxx xxx")
+        location = p2.text_input("County / town", value=profile["location"])
+
+        st.markdown("**Investment preferences**")
+        q1, q2, q3 = st.columns(3)
+        experience = q1.selectbox(
+            "Experience level", EXPERIENCE_LEVELS, index=EXPERIENCE_LEVELS.index(profile["experience"])
+        )
+        risk = q2.selectbox("Risk tolerance", RISK_LEVELS, index=RISK_LEVELS.index(profile["riskTolerance"]))
+        horizon = q3.selectbox("Investment horizon", HORIZONS, index=HORIZONS.index(profile["horizon"]))
+        goals = st.multiselect("Investment goals", GOALS, default=[g for g in profile["goals"] if g in GOALS])
+        preferred = st.multiselect(
+            "Preferred sectors",
+            sectors,
+            default=[s for s in profile["preferredSectors"] if s in sectors],
+        )
+        budget = st.number_input(
+            "Monthly investment budget (KES)",
+            min_value=0.0,
+            value=float(profile["monthlyBudget"]),
+            step=1000.0,
+        )
+        bio = st.text_area("About me / notes", value=profile["bio"], max_chars=500)
+
+        if st.form_submit_button("💾 Save profile", type="primary"):
+            result = update_profile(
+                profile,
+                {
+                    "fullName": full_name,
+                    "email": email,
+                    "phone": phone,
+                    "location": location,
+                    "experience": experience,
+                    "riskTolerance": risk,
+                    "horizon": horizon,
+                    "goals": goals,
+                    "preferredSectors": preferred,
+                    "monthlyBudget": float(budget),
+                    "bio": bio,
+                },
+            )
+            (st.success if result.ok else st.error)(result.message)
+            if result.ok:
+                st.rerun()
+
+    if profile["preferredSectors"]:
+        st.markdown("**Companies in your preferred sectors**")
+        matches = df[df["Sector"].isin(profile["preferredSectors"])]
+        st.dataframe(
+            matches.set_index("Company")[["Sector", PRICE_COL, "Avg Return %"]],
+            use_container_width=True,
+        )
+
+    with st.expander("⚠️ Clear profile"):
+        st.caption("Deletes all saved profile details. Cannot be undone.")
+        if st.button("Clear my profile", key="reset_profile_btn"):
+            reset_profile()
+            st.success("Profile cleared.")
+            st.rerun()
+
+
 def render_asset_classes() -> None:
     st.subheader("🎓 Asset classes explained")
     st.caption("A quick primer on the main asset classes available to investors in Kenya, and how each one works.")
@@ -697,6 +792,10 @@ def main() -> None:
     st.set_page_config(page_title="Kenya Investment Explorer", page_icon="📈", layout="wide")
     hide_default_chrome()
     st.title("📈 Kenya Investment Explorer")
+    from data.profile import load_profile
+
+    if name := load_profile()["fullName"]:
+        st.markdown(f"👋 Welcome back, **{name}**")
     st.caption(
         "Browse companies across every major sector of the Kenyan economy, their share "
         "returns, and current market price per share — with an AI assistant to ask about it."
@@ -723,6 +822,7 @@ def main() -> None:
         tab_prices,
         tab_assets,
         tab_chat,
+        tab_profile,
     ) = st.tabs(
         [
             "🏠 Overview",
@@ -735,6 +835,7 @@ def main() -> None:
             "💹 Update Market Prices",
             "🎓 Asset Classes",
             "🤖 Ask AI",
+            "👤 Profile",
         ]
     )
 
@@ -769,6 +870,9 @@ def main() -> None:
 
     with tab_chat:
         render_chat(filtered if not filtered.empty else df)
+
+    with tab_profile:
+        render_profile(df)
 
 
 if __name__ == "__main__":
