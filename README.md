@@ -37,7 +37,7 @@ plus a primer on how each major asset class works.
   - Portfolio analysis (sector allocation, value over time, P&L by sector)
   - Auto-invest plans (weekly/monthly) and a dividend & corporate-actions calendar that pays dividends into
     the paper portfolio (`data/corporate_actions.json`)
-  - PDF contract notes and portfolio statements, email price alerts (SMTP settings in `.env`) and
+  - PDF contract notes and portfolio statements, email and SMS price alerts (SMTP / Africa's Talking or Twilio settings in `.env` or Secrets) and
     AI-drafted research notes (Groq)
 - **Light / dark mode and Kiswahili** — 🌙/☀️ and EN/SW switches at the top of the sidebar. Themes are
   defined in `.streamlit/config.toml` (`[theme.light]` / `[theme.dark]`); translations live in

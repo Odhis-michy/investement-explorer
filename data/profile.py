@@ -50,6 +50,7 @@ def _default_profile() -> dict:
         "monthlyBudget": 0.0,
         "bio": "",
         "emailAlerts": False,
+        "smsAlerts": False,
         "language": "en",
         "lastUpdated": None,
     }
@@ -73,6 +74,13 @@ def update_profile(profile: dict, updates: dict) -> ProfileResult:
         return ProfileResult(False, "Full name is required.")
     if email and not _EMAIL_RE.match(email):
         return ProfileResult(False, f"'{email}' doesn't look like a valid email address.")
+    if updates.get("emailAlerts") and not email:
+        return ProfileResult(False, "Add your email address to receive email alerts.")
+    if updates.get("smsAlerts"):
+        from data.notify import normalize_phone
+
+        if not normalize_phone(updates.get("phone", "")):
+            return ProfileResult(False, "Add a valid phone number (e.g. 0712 345 678) to receive SMS alerts.")
     if updates.get("monthlyBudget", 0.0) < 0:
         return ProfileResult(False, "Monthly investment budget can't be negative.")
 

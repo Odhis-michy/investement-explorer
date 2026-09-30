@@ -1471,6 +1471,16 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
             st.rerun()
 
 
+def alert_targets(prof: dict) -> tuple[str | None, str | None]:
+    """(email, phone) to notify, only for channels the user turned on and the app has credentials for."""
+    from data.notify import email_configured, normalize_phone, sms_configured
+
+    email_to = prof["email"] if prof["emailAlerts"] and prof["email"] and email_configured() else None
+    phone = normalize_phone(prof["phone"]) if prof["smsAlerts"] else None
+    sms_to = phone if phone and sms_configured() else None
+    return email_to, sms_to
+
+
 def render_watchlist(df: pd.DataFrame) -> None:
     from data.watchlist import (
         add_company,
@@ -1488,17 +1498,18 @@ def render_watchlist(df: pd.DataFrame) -> None:
     st.caption(t("Track companies you're interested in and set a target price alert — above or below "
         "a threshold. Checked live against the current Market Price.")
     )
-    from data.notify import email_configured
     from data.profile import load_profile
 
     prof = load_profile()
-    if prof["emailAlerts"] and prof["email"] and email_configured():
-        st.caption(f"📧 Triggered alerts are emailed to **{prof['email']}** (once per trigger).")
-    elif prof["emailAlerts"]:
-        st.caption(t("📧 Email alerts are on, but need an email in your profile and SMTP settings in `.env` "
-                   "(see `.env.example`)."))
-    else:
-        st.caption(t("📧 Turn on **Email me price alerts** in the 👤 Profile tab to get alerts by email."))
+    email_to, sms_to = alert_targets(prof)
+    if email_to or sms_to:
+        where = " · ".join(x for x in (f"📧 {email_to}" if email_to else "", f"📱 {sms_to}" if sms_to else "") if x)
+        st.caption(t("Triggered alerts are sent to") + f" **{where}** " + t("(once per trigger)."))
+    if (prof["emailAlerts"] and not email_to) or (prof["smsAlerts"] and not sms_to):
+        st.caption(t("⚠️ Some alerts you turned on aren't set up yet — check the email/phone in your profile "
+                     "and the email/SMS settings in `.env` or the app's Secrets (see `.env.example`)."))
+    if not (prof["emailAlerts"] or prof["smsAlerts"]):
+        st.caption(t("📧📱 Turn on email or SMS price alerts in the 👤 Profile tab to be notified outside the app."))
 
     for hit in check_alerts(wl, price_by_company):
         arrow = "risen above" if hit["direction"] == "above" else "fallen below"
@@ -1828,8 +1839,11 @@ def render_profile(df: pd.DataFrame) -> None:
             step=1000.0,
         )
         bio = st.text_area(t("About me / notes"), value=profile["bio"], max_chars=500)
-        email_alerts = st.checkbox(t("📧 Email me price alerts"), value=profile["emailAlerts"],
-                                   help="Sends watchlist alerts to the email above when they trigger.")
+        a1, a2 = st.columns(2)
+        email_alerts = a1.checkbox(t("📧 Email me price alerts"), value=profile["emailAlerts"],
+                                   help=t("Sends watchlist alerts to the email above when they trigger."))
+        sms_alerts = a2.checkbox(t("📱 SMS me price alerts"), value=profile["smsAlerts"],
+                                 help=t("Sends watchlist alerts by SMS to the phone number above."))
 
         if st.form_submit_button(t("💾 Save profile"), type="primary"):
             result = update_profile(
@@ -1847,11 +1861,23 @@ def render_profile(df: pd.DataFrame) -> None:
                     "monthlyBudget": float(budget),
                     "bio": bio,
                     "emailAlerts": email_alerts,
+                    "smsAlerts": sms_alerts,
                 },
             )
             (st.success if result.ok else st.error)(result.message)
             if result.ok:
                 st.rerun()
+
+    if profile["emailAlerts"] or profile["smsAlerts"]:
+        from data.notify import send_test_alert
+
+        email_to, sms_to = alert_targets(profile)
+        if st.button(t("📨 Send a test alert"), key="test_alert_btn", disabled=not (email_to or sms_to)):
+            for ok, msg in send_test_alert(email_to, sms_to):
+                (st.success if ok else st.error)(msg)
+        if not (email_to or sms_to):
+            st.caption(t("Test alerts need your email/phone above plus email or SMS settings in `.env` or the "
+                         "app's Secrets."))
 
     if profile["preferredSectors"]:
         st.markdown(t("**Companies in your preferred sectors**"))
@@ -1977,16 +2003,16 @@ def main() -> None:
     for result in jobs:
         st.toast(result.message, icon="✅" if result.ok else "⚠️")
 
-    # Email any newly triggered watchlist alerts (once per trigger).
-    from data.notify import email_alerts, email_configured
+    # Email / SMS any newly triggered watchlist alerts (once per trigger per channel).
+    from data.notify import send_alerts
     from data.profile import load_profile
     from data.watchlist import check_alerts, load_watchlist, save_watchlist
 
-    prof = load_profile()
-    if prof["emailAlerts"] and prof["email"] and email_configured():
+    email_to, sms_to = alert_targets(load_profile())
+    if email_to or sms_to:
         wl = load_watchlist()
-        for message in email_alerts(wl, check_alerts(wl, prices), prof["email"]):
-            st.toast(message, icon="📧")
+        for message in send_alerts(wl, check_alerts(wl, prices), email_to, sms_to):
+            st.toast(message, icon="📨")
         save_watchlist(wl)
 
     render_hero(raw)

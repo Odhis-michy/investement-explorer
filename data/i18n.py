@@ -338,6 +338,24 @@ SW = {
     "Profile saved.": "Wasifu umehifadhiwa.",
     "Investment opportunities": "Fursa za uwekezaji",
     "companies": "kampuni",
+    "📱 SMS me price alerts": "📱 Nitumie arifa za bei kwa SMS",
+    "Sends watchlist alerts to the email above when they trigger.":
+        "Hutuma arifa za orodha kwa barua pepe iliyo hapo juu zinapofikiwa.",
+    "Sends watchlist alerts by SMS to the phone number above.":
+        "Hutuma arifa za orodha kwa SMS kwenye nambari ya simu iliyo hapo juu.",
+    "📨 Send a test alert": "📨 Tuma arifa ya majaribio",
+    "Test alerts need your email/phone above plus email or SMS settings in `.env` or the app's Secrets.":
+        "Arifa za majaribio zinahitaji barua pepe/simu yako hapo juu pamoja na mipangilio ya barua pepe au SMS "
+        "kwenye `.env` au Secrets za programu.",
+    "Triggered alerts are sent to": "Arifa zinazofikiwa hutumwa kwa",
+    "(once per trigger).": "(mara moja kwa kila tukio).",
+    "⚠️ Some alerts you turned on aren't set up yet — check the email/phone in your profile and the email/SMS "
+    "settings in `.env` or the app's Secrets (see `.env.example`).":
+        "⚠️ Baadhi ya arifa ulizowasha bado hazijawekwa — angalia barua pepe/simu kwenye wasifu wako na "
+        "mipangilio ya barua pepe/SMS kwenye `.env` au Secrets za programu.",
+    "📧📱 Turn on email or SMS price alerts in the 👤 Profile tab to be notified outside the app.":
+        "📧📱 Washa arifa za bei kwa barua pepe au SMS kwenye kichupo cha 👤 Wasifu ili upate taarifa nje ya "
+        "programu.",
     "Your conversation is saved automatically.": "Mazungumzo yako yanahifadhiwa yenyewe.",
     "messages": "ujumbe",
     "⬇️ Download chat": "⬇️ Pakua mazungumzo",
