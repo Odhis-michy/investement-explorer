@@ -22,6 +22,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+def _load_streamlit_secrets() -> None:
+    """On Streamlit Community Cloud keys live in st.secrets; mirror top-level ones into the environment
+    so everything (Groq, SMTP email alerts) reads them the same way as a local .env file."""
+    try:
+        for key, value in st.secrets.items():
+            if isinstance(value, (str, int, float)) and not os.environ.get(key):
+                os.environ[key] = str(value)
+    except Exception:  # noqa: BLE001 - no secrets.toml when running locally
+        pass
+
+
+_load_streamlit_secrets()
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
