@@ -245,44 +245,69 @@ def hide_default_chrome() -> None:
     )
 
 
+ACCENT = "#F0B90B"
+UP = "#0ECB81"
+DOWN = "#F6465D"
+
 HOME_CSS = """
 <style>
-.hero {background:#0f766e;color:#fff;border-radius:14px;padding:22px 26px;margin-bottom:14px;
-  display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
-.hero h1 {color:#fff !important;font-size:30px;margin:0;padding:0}
-.hero p {margin:4px 0 0;color:#d1fae5;font-size:15px}
-.hero .chips {margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
-.hero .chip {background:rgba(255,255,255,.16);border-radius:999px;padding:3px 11px;font-size:13px}
-.hero .stamp {font-size:13px;color:#d1fae5;text-align:right}
-.kpis {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:6px 0 18px}
-.kpi {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px 16px;background:rgba(128,128,128,.06)}
-.kpi .l {font-size:13px;opacity:.75}
-.kpi .v {font-size:26px;font-weight:600;margin-top:2px}
-.kpi .s {font-size:12px;opacity:.7;margin-top:2px}
-.panel {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px 16px;margin-bottom:12px}
-.panel h4 {margin:0 0 8px;font-size:16px;padding:0}
-.mv-row {display:flex;justify-content:space-between;gap:10px;padding:7px 0;
-  border-bottom:1px solid rgba(128,128,128,.18);font-size:14px}
-.mv-row:last-child {border-bottom:none}
-.mv-row .sub {opacity:.65;font-size:12px}
-.up {color:#16a34a;font-weight:600}
-.dn {color:#dc2626;font-weight:600}
-.home-note {font-size:12px;opacity:.65;margin-top:18px}
-.sb-card {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px;margin-bottom:12px;
-  background:rgba(128,128,128,.06)}
+.topbar {display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  padding:12px 4px 14px;margin-bottom:6px;border-bottom:1px solid #2B3139}
+.brand {color:#F0B90B;font-size:24px;font-weight:700;letter-spacing:.5px}
+.brand small {color:#848E9C;font-size:13px;font-weight:500;margin-left:10px;letter-spacing:0}
+.topbar .right {text-align:right;font-size:13px;color:#848E9C}
+.topbar .right b {color:#EAECEF}
+.chip {display:inline-block;background:#2B3139;color:#EAECEF;border-radius:6px;padding:2px 9px;
+  font-size:12px;margin:4px 0 0 5px}
+.mk-cards {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0 22px}
+@media (max-width:1100px) {.mk-cards {grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px) {.mk-cards {grid-template-columns:minmax(0,1fr)}}
+.mk-card {border:1px solid #2B3139;border-radius:14px;padding:14px 14px}
+.mk-card .hd {display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:10px}
+.mk-card .hd a {color:#848E9C !important;text-decoration:none;font-weight:500}
+.mk-card .hd a:hover {color:#F0B90B !important}
+.mk-row {display:grid;grid-template-columns:24px minmax(0,1fr) auto 64px;align-items:center;gap:6px;
+  padding:8px 0;font-size:13px}
+.mk-row .nm {font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-row .px {text-align:right}
+.mk-row .ch {text-align:right}
+.ico {width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:#0B0E11;flex-shrink:0}
+.ico.lg {width:30px;height:30px;font-size:12px}
+.up {color:#0ECB81 !important;font-weight:600}
+.dn {color:#F6465D !important;font-weight:600}
+.mk-title {font-size:18px;font-weight:700;margin:6px 0 2px}
+.mk-sub {font-size:12px;color:#848E9C;margin-bottom:10px}
+.mk-table {width:100%;border-collapse:collapse;font-size:14px}
+.mk-table th {color:#848E9C;font-weight:500;font-size:12px;text-align:right;padding:10px 8px;
+  border-bottom:1px solid #2B3139}
+.mk-table th:first-child, .mk-table td:first-child {text-align:left}
+.mk-table td {text-align:right;padding:14px 8px;border-bottom:1px solid #1E2329}
+.mk-table tr:hover td {background:#1E2329}
+.mk-name {display:flex;align-items:center;gap:10px}
+.mk-name b {font-size:15px}
+.mk-name span {color:#848E9C;font-size:12px}
+.mk-table .muted {color:#848E9C;font-size:12px}
+.star {font-size:18px;text-decoration:none !important;color:#848E9C !important}
+.star.on {color:#F0B90B !important}
+.home-note {font-size:12px;color:#848E9C;margin-top:18px}
+.sb-card {border:1px solid #2B3139;border-radius:12px;padding:14px;margin-bottom:12px;background:#181A20}
 .sb-top {display:flex;align-items:center;gap:12px}
-.sb-avatar {width:46px;height:46px;border-radius:50%;background:#0f766e;color:#fff;font-weight:600;
+.sb-avatar {width:46px;height:46px;border-radius:50%;background:#F0B90B;color:#0B0E11;font-weight:700;
   display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
 .sb-name {font-weight:600;font-size:16px;line-height:1.2}
-.sb-sub {font-size:12px;opacity:.7;word-break:break-all}
+.sb-sub {font-size:12px;color:#848E9C;word-break:break-all}
 .sb-chips {display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
-.sb-chip {font-size:11px;border-radius:999px;padding:2px 9px;background:rgba(15,118,110,.18);color:#14b8a6}
+.sb-chip {font-size:11px;border-radius:6px;padding:2px 8px;background:rgba(240,185,11,.14);color:#F0B90B}
 .sb-stats {display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.sb-stat {border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:8px 10px}
-.sb-stat .l {font-size:11px;opacity:.7}
+.sb-stat {border:1px solid #2B3139;border-radius:10px;padding:8px 10px}
+.sb-stat .l {font-size:11px;color:#848E9C}
 .sb-stat .v {font-size:16px;font-weight:600}
 </style>
 """
+
+SECTOR_COLORS = ["#F0B90B", "#F7931A", "#627EEA", "#0ECB81", "#E84142", "#8247E5",
+                 "#26A17B", "#F3BA2F", "#00AAE4", "#FF6B6B", "#C0A2FF", "#4FD1C5"]
 
 
 def _greeting() -> str:
@@ -300,23 +325,20 @@ def render_hero(raw: dict) -> None:
     profile = load_profile()
     name = html.escape(profile["fullName"])
     if name:
-        headline = f"{_greeting()}, {name}"
-        chips = [profile["riskTolerance"] + " risk", profile["horizon"], *profile["preferredSectors"][:3]]
+        greeting = f"{_greeting()}, <b>{name}</b>"
+        chips = [profile["riskTolerance"] + " risk", profile["horizon"]]
         chips_html = "".join(f'<span class="chip">{html.escape(c)}</span>' for c in chips)
     else:
-        headline = "Explore investment opportunities across the Kenyan economy"
-        chips_html = '<span class="chip">Set up your profile in the 👤 Profile tab to personalise this page</span>'
+        greeting = "Welcome, <b>guest investor</b>"
+        chips_html = '<span class="chip">Set up your profile in the sidebar</span>'
 
     st.markdown(HOME_CSS, unsafe_allow_html=True)
     st.markdown(
         f"""
-<div class="hero">
-  <div>
-    <h1>📈 Kenya Investment Explorer</h1>
-    <p>{headline}</p>
-    <div class="chips">{chips_html}</div>
-  </div>
-  <div class="stamp">NSE prices last updated<br><b>{html.escape(str(raw.get("lastPriceUpdate", "—")))}</b></div>
+<div class="topbar">
+  <div class="brand">📈 KENYA INVEST<small>NSE Investment Explorer</small></div>
+  <div class="right">{greeting} · prices updated <b>{html.escape(str(raw.get("lastPriceUpdate", "—")))}</b>
+    <div>{chips_html}</div></div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -425,126 +447,154 @@ def render_sidebar(df: pd.DataFrame) -> None:
             st.rerun()
 
 
-def _kpi_cards(cards: list[tuple[str, str, str]]) -> None:
-    body = "".join(
-        f'<div class="kpi"><div class="l">{label}</div><div class="v">{value}</div><div class="s">{sub}</div></div>'
-        for label, value, sub in cards
-    )
-    st.markdown(f'<div class="kpis">{body}</div>', unsafe_allow_html=True)
-
-
-def _panel(title: str, rows: list[tuple[str, str, str, str]], empty: str = "Nothing to show yet.") -> None:
-    """rows: (main label, sub label, value text, css class for value)."""
-    body = "".join(
-        f'<div class="mv-row"><div>{html.escape(main)}<div class="sub">{html.escape(sub)}</div></div>'
-        f'<div class="{cls}">{val}</div></div>'
-        for main, sub, val, cls in rows
-    ) or f'<div class="mv-row"><div class="sub">{empty}</div></div>'
-    st.markdown(f'<div class="panel"><h4>{title}</h4>{body}</div>', unsafe_allow_html=True)
-
-
 def _signed(value: float) -> tuple[str, str]:
     return f"{value:+.2f}%", "up" if value >= 0 else "dn"
 
 
+def _icon(company: str, sector: str, sectors: list[str], size: str = "") -> str:
+    initials = "".join(w[0] for w in company.replace("(", " ").split()[:2]).upper()
+    color = SECTOR_COLORS[sectors.index(sector) % len(SECTOR_COLORS)] if sector in sectors else ACCENT
+    return f'<span class="ico {size}" style="background:{color}">{html.escape(initials)}</span>'
+
+
+SORTS = {
+    "mcap": ("Market cap", "Market Cap (KES Bn)", False),
+    "gain": ("Top gainers", "Change %", False),
+    "loss": ("Top losers", "Change %", True),
+    "perf": ("5-yr average return", "Avg Return %", False),
+    "price": ("Price", PRICE_COL, False),
+    "name": ("Name (A–Z)", "Company", True),
+}
+
+
 def render_overview(df: pd.DataFrame, raw: dict) -> None:
-    from data.portfolio import holdings_market_value, load_portfolio
-    from data.profile import load_profile
-    from data.watchlist import check_alerts, load_watchlist
+    from urllib.parse import quote
 
-    movers = df.dropna(subset=[PREV_PRICE_COL]).copy()
-    movers = movers[movers[PREV_PRICE_COL] > 0]
-    movers["Change %"] = (movers[PRICE_COL] / movers[PREV_PRICE_COL] - 1) * 100
-    gainers = int((movers["Change %"] > 0).sum())
-    losers = int((movers["Change %"] < 0).sum())
+    from data.watchlist import add_company, load_watchlist, remove_company
 
-    st.subheader("Market snapshot")
-    _kpi_cards(
-        [
-            ("🏢 Companies tracked", f"{len(df)}", "Listed on the NSE"),
-            ("🧩 Sectors covered", f"{df['Sector'].nunique()}", "Across the economy"),
-            ("💰 Total market cap", f"{df['Market Cap (KES Bn)'].sum():,.1f} Bn", "KES"),
-            (
-                "📊 Gainers / losers",
-                f'<span class="up">{gainers}</span> / <span class="dn">{losers}</span>',
-                "Since previous price",
-            ),
-        ]
-    )
-
-    price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
-    portfolio = load_portfolio()
-    total_value = portfolio["cash"] + holdings_market_value(portfolio, price_by_company)
-    baseline = portfolio["startingCash"] + portfolio.get("netDeposits", 0.0)
-    pnl_pct = (total_value - baseline) / baseline * 100 if baseline else 0.0
     wl = load_watchlist()
-    triggered = check_alerts(wl, price_by_company)
-    pnl_text, pnl_cls = _signed(pnl_pct)
 
-    st.subheader("Your account")
-    _kpi_cards(
-        [
-            ("💼 Paper portfolio", f"{total_value:,.0f}", "KES, cash + holdings"),
-            ("📈 Total P&L", f'<span class="{pnl_cls}">{pnl_text}</span>', "Against money put in"),
-            ("🔔 Alerts triggered", f"{len(triggered)}", "See the Watchlist tab"),
-            ("⭐ Watching", f"{len(wl['watching'])}", "Companies on your watchlist"),
-        ]
+    # Star links in the table come back as ?watch=<company>; toggle and clean the URL.
+    qp = st.query_params
+    if "watch" in qp:
+        company = qp["watch"]
+        if company in wl["watching"]:
+            remove_company(wl, company)
+        elif company in set(df["Company"]):
+            add_company(wl, company)
+        del st.query_params["watch"]
+        st.rerun()
+
+    sort_key = qp.get("sort", "mcap")
+    if sort_key not in SORTS:
+        sort_key = "mcap"
+
+    df = df.copy()
+    prev = df[PREV_PRICE_COL].where(df[PREV_PRICE_COL] > 0)
+    df["Change %"] = ((df[PRICE_COL] / prev - 1) * 100).fillna(0.0)
+    sectors = sorted(df["Sector"].unique())
+
+    # --- Summary cards ----------------------------------------------------------
+    def card(title: str, sort: str, frame: pd.DataFrame, value_col: str) -> str:
+        rows = ""
+        for _, r in frame.iterrows():
+            text, cls = _signed(r[value_col])
+            rows += (
+                f'<div class="mk-row">{_icon(r["Company"], r["Sector"], sectors)}'
+                f'<span class="nm">{html.escape(r["Company"])}</span>'
+                f'<span class="px">{r[PRICE_COL]:,.2f}</span><span class="ch {cls}">{text}</span></div>'
+            )
+        return (
+            f'<div class="mk-card"><div class="hd"><span>{title}</span>'
+            f'<a href="?sort={sort}" target="_self">More ›</a></div>{rows}</div>'
+        )
+
+    st.markdown(
+        '<div class="mk-cards">'
+        + card("🔥 Hot · largest", "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %")
+        + card("🚀 Top gainer", "gain", df.nlargest(3, "Change %"), "Change %")
+        + card("📉 Top loser", "loss", df.nsmallest(3, "Change %"), "Change %")
+        + card("🏆 Top performer · 5-yr", "perf", df.nlargest(3, "Avg Return %"), "Avg Return %")
+        + "</div>",
+        unsafe_allow_html=True,
     )
 
-    st.subheader("Market movers")
-    g_col, l_col = st.columns(2)
+    # --- Category bar + controls -----------------------------------------------------
+    category = st.pills(
+        "Category",
+        ["⭐ Favorites", "All", *sectors],
+        default="All",
+        key="mk_category",
+        label_visibility="collapsed",
+    ) or "All"
 
-    def mover_rows(frame: pd.DataFrame) -> list[tuple[str, str, str, str]]:
-        return [
-            (r["Company"], f"KES {r[PRICE_COL]:,.2f} · {r['Sector']}", *_signed(r["Change %"]))
-            for _, r in frame.iterrows()
-        ]
-
-    with g_col:
-        top_up = movers[movers["Change %"] > 0].nlargest(5, "Change %")
-        _panel("🟢 Top gainers", mover_rows(top_up), "No gainers since the last update.")
-    with l_col:
-        top_down = movers[movers["Change %"] < 0].nsmallest(5, "Change %")
-        _panel("🔴 Top losers", mover_rows(top_down), "No losers since the last update.")
-
-    chart_col, perf_col = st.columns([3, 2])
-    with chart_col:
-        st.subheader("Average return by sector")
-        import altair as alt
-
-        sector_returns = df.groupby("Sector", as_index=False)["Avg Return %"].mean().round(2)
-        chart = (
-            alt.Chart(sector_returns)
-            .mark_bar(cornerRadiusEnd=4)
-            .encode(
-                x=alt.X("Avg Return %:Q", title="Average return (%)"),
-                y=alt.Y("Sector:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260)),
-                color=alt.condition(alt.datum["Avg Return %"] >= 0, alt.value("#0f766e"), alt.value("#dc2626")),
-                tooltip=["Sector", "Avg Return %"],
-            )
-            .properties(height=380)
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.markdown('<div class="mk-title">Top NSE companies by market capitalization</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="mk-sub">A snapshot of every NSE company tracked here: latest price, price change, '
+            "5-year average return and market cap. Tap ☆ to add a company to your watchlist.</div>",
+            unsafe_allow_html=True,
         )
-        st.altair_chart(chart, use_container_width=True)
-    with perf_col:
-        st.subheader("Long-run performers")
+    with c2:
+        s1, s2 = st.columns(2)
+        period = s1.selectbox(
+            "Change", ["Since last price", "FY2025", "5-yr average"], key="mk_period", label_visibility="collapsed"
+        )
+        sort_label = s2.selectbox(
+            "Sort by",
+            [v[0] for v in SORTS.values()],
+            index=list(SORTS).index(sort_key),
+            key=f"mk_sort_{sort_key}",
+            label_visibility="collapsed",
+        )
+    sort_key = next(k for k, v in SORTS.items() if v[0] == sort_label)
+    _, sort_col, ascending = SORTS[sort_key]
 
-        def perf_rows(frame: pd.DataFrame) -> list[tuple[str, str, str, str]]:
-            return [(r["Company"], r["Sector"], *_signed(r["Avg Return %"])) for _, r in frame.iterrows()]
+    change_col = {"Since last price": "Change %", "FY2025": "FY2025", "5-yr average": "Avg Return %"}[period]
 
-        _panel("🏆 Best average return", perf_rows(df.nlargest(3, "Avg Return %")))
-        _panel("⚠️ Weakest average return", perf_rows(df.nsmallest(3, "Avg Return %")))
-
-    profile = load_profile()
-    st.subheader("Picks in your sectors")
-    if profile["preferredSectors"]:
-        picks = df[df["Sector"].isin(profile["preferredSectors"])].nlargest(5, "Avg Return %")
-        rows = [
-            (r["Company"], f"{r['Sector']} · KES {r[PRICE_COL]:,.2f}", *_signed(r["Avg Return %"]))
-            for _, r in picks.iterrows()
-        ]
-        _panel(f"Top companies for your {profile['riskTolerance'].lower()} profile, by average return", rows)
+    if category == "⭐ Favorites":
+        view = df[df["Company"].isin(wl["watching"])]
+    elif category == "All":
+        view = df
     else:
-        st.info("Choose your preferred sectors in the 👤 Profile tab to see personalised picks here.", icon="👤")
+        view = df[df["Sector"] == category]
+    view = view.sort_values(sort_col, ascending=ascending)
+
+    # --- Markets table ----------------------------------------------------------------------
+    if view.empty:
+        msg = "Your favorites list is empty — tap ☆ next to a company to add it." if category == "⭐ Favorites" \
+            else "No companies in this category."
+        st.info(msg, icon="⭐")
+    else:
+        body = ""
+        watching = set(wl["watching"])
+        for _, r in view.iterrows():
+            ch_text, ch_cls = _signed(r[change_col])
+            prev_px = r[PREV_PRICE_COL]
+            prev_html = f'<div class="muted">prev {prev_px:,.2f}</div>' if pd.notna(prev_px) else ""
+            on = r["Company"] in watching
+            star = (
+                f'<a class="star {"on" if on else ""}" target="_self" title="{"Remove from" if on else "Add to"} '
+                f'watchlist" href="?watch={quote(r["Company"])}&sort={sort_key}">{"★" if on else "☆"}</a>'
+            )
+            body += (
+                "<tr>"
+                f'<td><div class="mk-name">{_icon(r["Company"], r["Sector"], sectors, "lg")}'
+                f'<div><b>{html.escape(r["Company"])}</b><br><span>{html.escape(r["Sector"])}</span></div></div></td>'
+                f"<td>{r[PRICE_COL]:,.2f}{prev_html}</td>"
+                f'<td class="{ch_cls}">{ch_text}</td>'
+                f'<td>{r["Market Cap (KES Bn)"]:,.1f} Bn</td>'
+                f'<td>{r["Avg Return %"]:+.2f}%</td>'
+                f"<td>{star}</td>"
+                "</tr>"
+            )
+        st.markdown(
+            '<table class="mk-table"><thead><tr><th>Name</th><th>Price (KES)</th>'
+            f"<th>Change · {html.escape(period)}</th><th>Market cap (KES)</th><th>5-yr avg</th><th>Watch</th>"
+            f"</tr></thead><tbody>{body}</tbody></table>",
+            unsafe_allow_html=True,
+        )
 
     st.markdown(
         '<div class="home-note">⚠️ Market prices can be refreshed from a free public NSE data source '
