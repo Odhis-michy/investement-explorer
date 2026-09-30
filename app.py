@@ -1856,8 +1856,11 @@ def render_profile(df: pd.DataFrame) -> None:
         d1, d2 = st.columns([1, 2])
         id_type = d1.selectbox(t("ID type"), ID_TYPES, index=ID_TYPES.index(profile["idType"])
                                if profile["idType"] in ID_TYPES else 0, format_func=t)
+        # Never send the saved number back to the browser: leave the field empty, show it masked, keep it if blank.
         id_number = d2.text_input(
-            t("ID / passport number"), value=profile["idNumber"], type="password",
+            t("ID / passport number"), value="", type="password",
+            placeholder=(t("Saved:") + f" {mask_id(profile['idNumber'])} — " + t("leave blank to keep"))
+            if profile["idNumber"] else "",
             help=t("Stored only in this app's data folder and shown masked (last 4 characters)."),
         )
         p1, p2 = st.columns(2)
@@ -1896,7 +1899,7 @@ def render_profile(df: pd.DataFrame) -> None:
                     "firstName": first_name,
                     "secondName": second_name,
                     "idType": id_type,
-                    "idNumber": id_number,
+                    "idNumber": id_number or profile["idNumber"],
                     "email": email,
                     "phone": phone,
                     "location": location,

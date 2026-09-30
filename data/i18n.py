@@ -318,6 +318,8 @@ SW = {
     "Surname *": "Jina la ukoo *",
     "First name *": "Jina la kwanza *",
     "Second name": "Jina la pili",
+    "Saved:": "Imehifadhiwa:",
+    "leave blank to keep": "acha wazi kuibakiza",
     "ID type": "Aina ya kitambulisho",
     "National ID": "Kitambulisho cha taifa",
     "Passport": "Pasipoti",
