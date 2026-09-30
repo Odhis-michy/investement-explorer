@@ -50,6 +50,7 @@ def _default_profile() -> dict:
         "monthlyBudget": 0.0,
         "bio": "",
         "emailAlerts": False,
+        "language": "en",
         "lastUpdated": None,
     }
 
@@ -84,3 +85,10 @@ def update_profile(profile: dict, updates: dict) -> ProfileResult:
 def reset_profile() -> None:
     if PROFILE_PATH.exists():
         PROFILE_PATH.unlink()
+
+
+def set_preference(key: str, value) -> None:
+    """Save a single app preference (e.g. language) without the full-profile validation."""
+    profile = load_profile()
+    profile[key] = value
+    save_profile(profile)

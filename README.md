@@ -39,6 +39,9 @@ plus a primer on how each major asset class works.
     the paper portfolio (`data/corporate_actions.json`)
   - PDF contract notes and portfolio statements, email price alerts (SMTP settings in `.env`) and
     AI-drafted research notes (Groq)
+- **Light / dark mode and Kiswahili** — 🌙/☀️ and EN/SW switches at the top of the sidebar. Themes are
+  defined in `.streamlit/config.toml` (`[theme.light]` / `[theme.dark]`); translations live in
+  `data/i18n.py` (company names, news and AI answers stay in English).
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).
