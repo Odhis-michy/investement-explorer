@@ -1,15 +1,11 @@
 """Watchlist and price-alert tracking for the Kenya Investment Explorer.
 
-Single local watchlist (no auth, no multi-user support), tracked in
-data/watchlist.json — mirrors the pattern used by data/portfolio.py.
+One watchlist per signed-in user, stored in the database (see data/storage.py).
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-WATCHLIST_PATH = Path(__file__).parent / "watchlist.json"
+from data.storage import get_doc, put_doc
 
 
 def _default_watchlist() -> dict:
@@ -17,15 +13,15 @@ def _default_watchlist() -> dict:
 
 
 def load_watchlist() -> dict:
-    if not WATCHLIST_PATH.exists():
+    wl = get_doc("watchlist")
+    if wl is None:
         wl = _default_watchlist()
         save_watchlist(wl)
-        return wl
-    return json.loads(WATCHLIST_PATH.read_text())
+    return wl
 
 
 def save_watchlist(wl: dict) -> None:
-    WATCHLIST_PATH.write_text(json.dumps(wl, indent=2))
+    put_doc("watchlist", wl)
 
 
 def add_company(wl: dict, company: str) -> None:

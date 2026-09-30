@@ -46,6 +46,12 @@ plus a primer on how each major asset class works.
   refreshes live prices every 15 minutes during NSE hours (Mon–Fri 09:30–15:00 EAT), sending email/SMS
   even when nobody has the app open. Or run it on its own: `python alert_worker.py` (or `--once` from
   Task Scheduler/cron) with `BACKGROUND_ALERTS=0` in `.env`.
+- **Accounts & database** — sign in / create account / forgot password (emailed code). Each user has
+  their own portfolio, orders, watchlist, alerts, profile, chat and AI notes, stored in a database:
+  local SQLite (`data/app.db`) by default, or Postgres via `DATABASE_URL` (use a free Supabase or Neon
+  database on Streamlit Community Cloud, whose disk is wiped on restart). Passwords are salted PBKDF2
+  hashes; sessions use a cookie (30 days with “Keep me signed in”); 5 wrong passwords lock the account
+  for 15 minutes. The first account created imports any older `data/*.json` files.
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).

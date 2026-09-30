@@ -1,8 +1,7 @@
 """Simulated paper-trading portfolio for the Kenya Investment Explorer.
 
-A single local virtual portfolio (no auth, no multi-user support) that lets the
-user "buy" and "sell" shares against the prices in data/companies.json, tracked
-in data/portfolio.json. Covers:
+A virtual portfolio per signed-in user that lets them "buy" and "sell" shares against
+the prices in data/companies.json, stored in the database (see data/storage.py). Covers:
 
 - market orders, with NSE trading charges from data/fees.py
 - limit, stop-loss, take-profit and stop-limit orders, day or good-till-cancelled,
@@ -18,15 +17,13 @@ against come from.
 from __future__ import annotations
 
 import calendar
-import json
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 
 from data.fees import TOTAL_RATE, total_fees
+from data.storage import get_doc, put_doc
 
-PORTFOLIO_PATH = Path(__file__).parent / "portfolio.json"
 STARTING_CASH = 1_000_000.0  # KES — arbitrary virtual starting balance
 DIVIDEND_WHT = 0.05  # withholding tax on dividends for Kenyan residents
 
@@ -54,11 +51,11 @@ def _default_portfolio() -> dict:
 
 
 def load_portfolio() -> dict:
-    if not PORTFOLIO_PATH.exists():
+    portfolio = get_doc("portfolio")
+    if portfolio is None:
         portfolio = _default_portfolio()
         save_portfolio(portfolio)
         return portfolio
-    portfolio = json.loads(PORTFOLIO_PATH.read_text())
     # Upgrade portfolios saved by older versions of the app.
     for key, value in _default_portfolio().items():
         portfolio.setdefault(key, value)
@@ -71,7 +68,7 @@ def load_portfolio() -> dict:
 
 
 def save_portfolio(portfolio: dict) -> None:
-    PORTFOLIO_PATH.write_text(json.dumps(portfolio, indent=2))
+    put_doc("portfolio", portfolio)
 
 
 def reset_portfolio() -> dict:

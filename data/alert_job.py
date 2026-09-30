@@ -77,8 +77,24 @@ def run_cycle(refresh: bool) -> tuple[list[str], bool]:
         result = update_companies_json()
         messages.append(result.message)
         refreshed = True
-    messages += check_and_notify()
+    messages += check_all_users()
     return messages, refreshed
+
+
+def check_all_users() -> list[str]:
+    """Check alerts for every account (the worker isn't tied to any one signed-in user)."""
+    from data.auth import list_user_ids
+    from data.storage import as_user
+
+    prices = current_prices()
+    messages = []
+    for user_id in list_user_ids():
+        with as_user(user_id):
+            try:
+                messages += check_and_notify(prices)
+            except Exception as exc:  # noqa: BLE001 - one user's failure mustn't stop the others
+                messages.append(f"Alert check failed for one account: {exc}")
+    return messages
 
 
 def _stamp() -> str:

@@ -1,18 +1,16 @@
 """Investor profile for the Kenya Investment Explorer.
 
-Single local profile (no auth, no multi-user support), tracked in
-data/profile.json — mirrors the pattern used by data/watchlist.py.
+One profile per signed-in user, stored in the database (see data/storage.py).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 
-PROFILE_PATH = Path(__file__).parent / "profile.json"
+from data.storage import delete_doc, get_doc, put_doc
+
 
 RISK_LEVELS = ["Conservative", "Moderate", "Aggressive"]
 HORIZONS = ["Short term (< 1 year)", "Medium term (1–5 years)", "Long term (5+ years)"]
@@ -70,10 +68,11 @@ def _default_profile() -> dict:
 
 
 def load_profile() -> dict:
-    if not PROFILE_PATH.exists():
+    stored = get_doc("profile")
+    if stored is None:
         return _default_profile()
     # Merge over defaults so profiles saved by older versions still get new fields.
-    profile = {**_default_profile(), **json.loads(PROFILE_PATH.read_text())}
+    profile = {**_default_profile(), **stored}
     if profile["fullName"] and not (profile["surname"] or profile["firstName"]):
         # Older profiles stored one "First Middle Last" name — split it into the separate fields.
         parts = profile["fullName"].split()
@@ -108,7 +107,7 @@ def _valid_name(name: str) -> bool:
 
 
 def save_profile(profile: dict) -> None:
-    PROFILE_PATH.write_text(json.dumps(profile, indent=2))
+    put_doc("profile", profile)
 
 
 def update_profile(profile: dict, updates: dict) -> ProfileResult:
@@ -146,8 +145,7 @@ def update_profile(profile: dict, updates: dict) -> ProfileResult:
 
 
 def reset_profile() -> None:
-    if PROFILE_PATH.exists():
-        PROFILE_PATH.unlink()
+    delete_doc("profile")
 
 
 def set_preference(key: str, value) -> None:

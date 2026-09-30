@@ -378,11 +378,176 @@ def render_hero(raw: dict) -> None:
     )
 
 
+AUTH_CSS = """
+<style>
+.auth-hero {text-align:center;margin:28px 0 8px}
+.auth-hero .brand {font-size:34px}
+.auth-hero p {color:var(--ki-muted);margin:6px 0 18px}
+.auth-points {display:flex;justify-content:center;gap:18px;flex-wrap:wrap;color:var(--ki-muted);font-size:13px;margin-bottom:14px}
+</style>
+"""
+
+
+def _cookie_js(token: str, max_age: int | None) -> None:
+    """Set (or, with max_age=0, clear) the sign-in cookie in the browser."""
+    import streamlit.components.v1 as components
+
+    from data.auth import COOKIE_NAME
+
+    attrs = f"{COOKIE_NAME}={token}; path=/; SameSite=Lax" + (f"; max-age={max_age}" if max_age is not None else "")
+    components.html(
+        "<script>const p = window.parent;"
+        f"p.document.cookie = '{attrs}' + (p.location.protocol === 'https:' ? '; Secure' : '');</script>",
+        height=0,
+    )
+
+
+def _start_session(user: dict, remember: bool, message: str) -> None:
+    from data.auth import create_session
+
+    token, max_age = create_session(user["id"], remember)
+    st.session_state["user"] = user
+    st.session_state["session_token"] = token
+    st.session_state["set_cookie"] = (token, max_age)
+    st.session_state["auth_flash"] = message
+    st.rerun()
+
+
+def sign_out() -> None:
+    from data.auth import end_session
+
+    end_session(st.session_state.get("session_token"))
+    keep = {"lang", "pref_lang", "pref_theme"}
+    for key in [k for k in st.session_state if k not in keep]:
+        del st.session_state[key]  # nothing from this account (data, form values) carries over
+    st.session_state["clear_cookie"] = True
+    st.session_state["signed_out"] = True
+    st.rerun()
+
+
+def auth_gate() -> dict | None:
+    """The signed-in user from this session or the browser's session cookie, else None."""
+    from data.auth import COOKIE_NAME, user_for_session
+
+    user = st.session_state.get("user")
+    if user is None and not st.session_state.get("signed_out"):
+        token = st.context.cookies.get(COOKIE_NAME)
+        user = user_for_session(token)
+        if user:
+            st.session_state["user"] = user
+            st.session_state["session_token"] = token
+    return user
+
+
+def render_auth_page() -> None:
+    from data import auth
+
+    st.markdown(HOME_CSS + AUTH_CSS, unsafe_allow_html=True)
+    render_preferences(st.sidebar)
+    _, mid, _ = st.columns([1, 1.5, 1])
+    with mid:
+        st.markdown(
+            '<div class="auth-hero"><div class="brand">📈 KENYA INVEST</div>'
+            f'<p>{t("Explore, trade and track NSE investments — sign in to your account.")}</p>'
+            f'<div class="auth-points"><span>🔒 {t("Your own private portfolio")}</span>'
+            f'<span>🔔 {t("Email & SMS price alerts")}</span><span>🤖 {t("AI research notes")}</span></div></div>',
+            unsafe_allow_html=True,
+        )
+        if msg := st.session_state.pop("auth_flash", None):
+            st.success(msg)
+        tab_in, tab_up, tab_reset = st.tabs([t("Sign in"), t("Create account"), t("Forgot password")])
+
+        with tab_in, st.form("sign_in_form"):
+            identifier = st.text_input(t("Username or email"))
+            password = st.text_input(t("Password"), type="password")
+            remember = st.checkbox(t("Keep me signed in for 30 days"), value=True)
+            if st.form_submit_button(t("Sign in"), type="primary", use_container_width=True):
+                ok, msg, user = auth.authenticate(identifier, password)
+                if ok:
+                    st.session_state.pop("signed_out", None)
+                    _start_session(user, remember, t("Welcome back!"))
+                st.error(t(msg))
+
+        with tab_up, st.form("sign_up_form"):
+            username = st.text_input(t("Username"), help=t("3-30 characters: letters, numbers, dots or underscores."))
+            email = st.text_input(t("Email"))
+            new_pw = st.text_input(t("Password"), type="password", help=t("At least 8 characters, with letters and numbers."))
+            confirm = st.text_input(t("Confirm password"), type="password")
+            if st.form_submit_button(t("Create account"), type="primary", use_container_width=True):
+                if new_pw != confirm:
+                    st.error(t("Passwords don't match."))
+                else:
+                    ok, msg, user = auth.register(username, email, new_pw)
+                    if ok:
+                        st.session_state.pop("signed_out", None)
+                        _start_session(user, True, msg)
+                    st.error(t(msg))
+
+        with tab_reset:
+            with st.form("reset_request_form"):
+                ident = st.text_input(t("Username or email"), key="reset_ident")
+                if st.form_submit_button(t("Email me a reset code"), use_container_width=True):
+                    ok, msg = auth.start_reset(ident)
+                    (st.success if ok else st.error)(t(msg))
+            with st.form("reset_finish_form"):
+                ident2 = st.text_input(t("Username or email"), key="reset_ident2")
+                code = st.text_input(t("6-digit code"), max_chars=6)
+                pw1 = st.text_input(t("New password"), type="password", key="reset_pw1")
+                pw2 = st.text_input(t("Confirm new password"), type="password", key="reset_pw2")
+                if st.form_submit_button(t("Set new password"), type="primary", use_container_width=True):
+                    if pw1 != pw2:
+                        st.error(t("Passwords don't match."))
+                    else:
+                        ok, msg = auth.finish_reset(ident2, code, pw1)
+                        (st.success if ok else st.error)(t(msg))
+
+        from data.db import is_sqlite
+
+        if is_sqlite() and Path("/mount/src").exists():  # running on Streamlit Community Cloud
+            st.warning(t("This app is using temporary storage — accounts may be lost when it restarts. "
+                         "The app owner should set DATABASE_URL."), icon="⚠️")
+
+
+def render_account_box(sb) -> None:
+    """Signed-in user, sign out, change password, delete account."""
+    from data.auth import change_password
+
+    user = st.session_state["user"]
+    c1, c2 = sb.columns([3, 2])
+    c1.markdown(f"👤 **{html.escape(user['username'])}**")
+    if c2.button(t("Log out"), key="sb_logout", use_container_width=True):
+        sign_out()
+    with sb.expander(t("🔑 Change password")):
+        with st.form("change_pw_form"):
+            cur = st.text_input(t("Current password"), type="password")
+            new1 = st.text_input(t("New password"), type="password")
+            new2 = st.text_input(t("Confirm new password"), type="password")
+            if st.form_submit_button(t("Update password"), use_container_width=True):
+                if new1 != new2:
+                    st.error(t("Passwords don't match."))
+                else:
+                    ok, msg = change_password(user["id"], cur, new1)
+                    (st.success if ok else st.error)(t(msg))
+
+
+def render_delete_account(sb) -> None:
+    from data.auth import delete_account
+
+    with sb.expander(t("🗑️ Delete my account")):
+        st.caption(t("Permanently deletes your account, portfolio, watchlist, profile and history."))
+        confirm = st.text_input(t("Type DELETE to confirm"), key="sb_delete_confirm")
+        if st.button(t("Delete my account"), key="sb_delete_btn", use_container_width=True,
+                     disabled=confirm.strip() != "DELETE"):
+            delete_account(st.session_state["user"]["id"])
+            sign_out()
+
+
 def _save_language() -> None:
     from data.profile import set_preference
 
     st.session_state["lang"] = st.session_state["pref_lang"]
-    set_preference("language", st.session_state["lang"])
+    if st.session_state.get("user"):
+        set_preference("language", st.session_state["lang"])
 
 
 def render_preferences(sb) -> None:
@@ -428,6 +593,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
 
     sb = st.sidebar
     render_preferences(sb)
+    render_account_box(sb)
     sb.markdown(t("### 🧭 My dashboard"))
 
     # --- Profile card -----------------------------------------------------------
@@ -515,6 +681,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
         if st.button(t("Clear profile"), key="sb_clear_profile", use_container_width=True):
             reset_profile()
             st.rerun()
+    render_delete_account(sb)
 
 
 def _signed(value: float) -> tuple[str, str]:
@@ -1594,11 +1761,12 @@ def load_news() -> list[dict]:
     return json.loads(path.read_text())["items"]
 
 
-AI_NOTES_PATH = Path(__file__).parent / "data" / "ai_notes.json"
 
 
 def load_ai_notes() -> list[dict]:
-    return json.loads(AI_NOTES_PATH.read_text()) if AI_NOTES_PATH.exists() else []
+    from data.storage import get_doc
+
+    return get_doc("ai_notes") or []
 
 
 def generate_ai_note(df: pd.DataFrame, subject: str) -> str:
@@ -1648,14 +1816,18 @@ def render_news(df: pd.DataFrame) -> None:
                 try:
                     body = generate_ai_note(df, subject)
                     notes.insert(0, {"date": datetime.now().strftime("%Y-%m-%d %H:%M"), "subject": subject, "body": body})
-                    AI_NOTES_PATH.write_text(json.dumps(notes[:30], indent=2))
+                    from data.storage import put_doc
+
+                    put_doc("ai_notes", notes[:30])
                 except Exception as exc:  # noqa: BLE001 - surface API/config errors
                     st.error(f"The AI research desk hit an error: `{exc}`")
     for i, note in enumerate(notes[:10]):
         with st.expander(f"{note['subject']} · {note['date']}", expanded=i == 0):
             st.markdown(note["body"])
     if notes and st.button(t("Clear AI notes"), key="ai_notes_clear"):
-        AI_NOTES_PATH.unlink(missing_ok=True)
+        from data.storage import delete_doc
+
+        delete_doc("ai_notes")
         st.rerun()
 
     # --- Curated sample feed -----------------------------------------------------------------
@@ -1953,22 +2125,25 @@ def render_asset_classes() -> None:
             st.markdown(a["how"])
 
 
-CHAT_PATH = Path(__file__).parent / "data" / "chat_history.json"
 CHAT_CONTEXT_MESSAGES = 20  # how many past messages are sent to the AI with each question
 
 
 def load_chat_history() -> list[dict]:
-    return json.loads(CHAT_PATH.read_text()) if CHAT_PATH.exists() else []
+    from data.storage import get_doc
+
+    return get_doc("chat") or []
 
 
 def save_chat_history(history: list[dict]) -> None:
-    CHAT_PATH.write_text(json.dumps(history, indent=2))
+    from data.storage import put_doc
+
+    put_doc("chat", history)
 
 
 def render_chat(df: pd.DataFrame) -> None:
     st.subheader(t("🤖 Ask Groq AI about these opportunities"))
 
-    # Chat history is saved to data/chat_history.json so it survives reloads and restarts.
+    # Chat history is saved per user in the database so it survives reloads, restarts and devices.
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = load_chat_history()
     history = st.session_state.chat_history
@@ -1985,7 +2160,9 @@ def render_chat(df: pd.DataFrame) -> None:
         )
         if h3.button(t("🗑️ Clear chat"), key="chat_clear", use_container_width=True):
             st.session_state.chat_history = []
-            CHAT_PATH.unlink(missing_ok=True)
+            from data.storage import delete_doc
+
+            delete_doc("chat")
             st.rerun()
 
     for msg in history:
@@ -2025,15 +2202,38 @@ def main() -> None:
     st.set_page_config(page_title="Kenya Investment Explorer", page_icon="📈", layout="wide")
     hide_default_chrome()
 
-    from data.profile import load_profile as _load_profile
-
-    if "lang" not in st.session_state:
-        st.session_state["lang"] = _load_profile().get("language", "en")
+    st.session_state.setdefault("lang", "en")
     global THEME
     theme_type = getattr(st.context.theme, "type", None) or "dark"
     THEME = THEMES["light" if theme_type == "light" else "dark"]
     st.markdown("<style>:root {" + ";".join(f"{k}:{v}" for k, v in THEME.items()) + "}</style>",
                 unsafe_allow_html=True)
+
+    # --- Sign-in ---------------------------------------------------------------------------------
+    from data import storage
+
+    if st.session_state.pop("clear_cookie", False):
+        _cookie_js("", 0)
+    if pending := st.session_state.pop("set_cookie", None):
+        _cookie_js(*pending)
+    user = auth_gate()
+    background_alerts()  # runs for every account, even while nobody is signed in
+    if user is None:
+        storage.set_user(None)
+        render_auth_page()
+        st.stop()
+    storage.set_user(user["id"])
+    if msg := st.session_state.pop("auth_flash", None):
+        st.toast(msg, icon="👋")
+    if not st.session_state.get("lang_loaded"):
+        saved = storage.get_doc("profile") or {}
+        if saved.get("language"):
+            st.session_state["lang"] = st.session_state["pref_lang"] = saved["language"]
+        if not saved.get("email"):
+            from data.profile import set_preference
+
+            set_preference("email", user["email"])  # start the profile with the account email
+        st.session_state["lang_loaded"] = True
 
     version = st.session_state.get("data_version", 0)
     df = load_data((version, DATA_PATH.stat().st_mtime_ns))
@@ -2057,7 +2257,6 @@ def main() -> None:
     # every few minutes, even with nobody on the page; both share a lock so nothing is sent twice).
     from data.alert_job import check_and_notify
 
-    background_alerts()
     for message in check_and_notify(prices):
         st.toast(message, icon="📨")
 
