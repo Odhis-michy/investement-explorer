@@ -146,7 +146,10 @@ def update_companies_json() -> FetchResult:
         new_price = ticker_prices[ticker]
         old_price = float(c["marketPrice"])
         if new_price != old_price:
-            c["previousPrice"] = old_price
+            # Keep "previous" as the last price from an earlier day, so frequent intraday refreshes
+            # (e.g. the background alert worker) show today's change rather than the last few minutes'.
+            if c.get("lastUpdated") != today:
+                c["previousPrice"] = old_price
             c["marketPrice"] = new_price
             c["lastUpdated"] = today
             updated_count += 1

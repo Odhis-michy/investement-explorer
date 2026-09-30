@@ -339,6 +339,13 @@ SW = {
     "Investment opportunities": "Fursa za uwekezaji",
     "companies": "kampuni",
     "📱 SMS me price alerts": "📱 Nitumie arifa za bei kwa SMS",
+    "Background alerts running": "Arifa za chinichini zinaendelea",
+    "last check": "ukaguzi wa mwisho",
+    "next": "unaofuata",
+    "prices refreshed": "bei zilisasishwa",
+    "market open": "soko liko wazi",
+    "market closed": "soko limefungwa",
+    "Recent background activity": "Shughuli za hivi karibuni za chinichini",
     "Sends watchlist alerts to the email above when they trigger.":
         "Hutuma arifa za orodha kwa barua pepe iliyo hapo juu zinapofikiwa.",
     "Sends watchlist alerts by SMS to the phone number above.":

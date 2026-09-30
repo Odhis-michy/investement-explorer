@@ -42,6 +42,10 @@ plus a primer on how each major asset class works.
 - **Light / dark mode and Kiswahili** — 🌙/☀️ and EN/SW switches at the top of the sidebar. Themes are
   defined in `.streamlit/config.toml` (`[theme.light]` / `[theme.dark]`); translations live in
   `data/i18n.py` (company names, news and AI answers stay in English).
+- **Background price alerts** — a worker inside the app server checks watchlist alerts every 2 minutes and
+  refreshes live prices every 15 minutes during NSE hours (Mon–Fri 09:30–15:00 EAT), sending email/SMS
+  even when nobody has the app open. Or run it on its own: `python alert_worker.py` (or `--once` from
+  Task Scheduler/cron) with `BACKGROUND_ALERTS=0` in `.env`.
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).

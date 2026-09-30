@@ -126,6 +126,15 @@ def send_sms(to: str, body: str) -> tuple[bool, str]:
 # --- Price alerts ------------------------------------------------------------------------------
 
 
+def alert_targets(prof: dict) -> tuple[str | None, str | None]:
+    """(email, phone) to notify, only for channels the user turned on and the app has credentials for."""
+    email_to = prof["email"] if prof.get("emailAlerts") and prof.get("email") and email_configured() else None
+    phone = normalize_phone(prof.get("phone", "")) if prof.get("smsAlerts") else None
+    sms_to = phone if phone and sms_configured() else None
+    return email_to, sms_to
+
+
+
 def _alert_texts(t: dict) -> tuple[str, str, str]:
     verb = "risen above" if t["direction"] == "above" else "fallen below"
     subject = f"Price alert: {t['company']} {t['direction']} KES {t['target']:,.2f}"

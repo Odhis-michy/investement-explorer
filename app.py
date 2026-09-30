@@ -65,8 +65,9 @@ def load_raw() -> dict:
 
 
 @st.cache_data
-def load_data(_version: int = 0) -> pd.DataFrame:
-    """`_version` is bumped after a save so st.cache_data invalidates."""
+def load_data(version: tuple = ()) -> pd.DataFrame:
+    """`version` (save counter + companies.json mtime) changes whenever prices change, so the cache refreshes
+    after in-app saves and after background price refreshes."""
     raw = load_raw()
     rows = []
     for c in raw["companies"]:
@@ -1471,14 +1472,14 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
             st.rerun()
 
 
-def alert_targets(prof: dict) -> tuple[str | None, str | None]:
-    """(email, phone) to notify, only for channels the user turned on and the app has credentials for."""
-    from data.notify import email_configured, normalize_phone, sms_configured
+@st.cache_resource
+def background_alerts() -> dict | None:
+    """Start the price-alert worker once per server process (not per browser session)."""
+    if os.environ.get("BACKGROUND_ALERTS", "1") == "0":
+        return None
+    from data.alert_job import start_worker
 
-    email_to = prof["email"] if prof["emailAlerts"] and prof["email"] and email_configured() else None
-    phone = normalize_phone(prof["phone"]) if prof["smsAlerts"] else None
-    sms_to = phone if phone and sms_configured() else None
-    return email_to, sms_to
+    return start_worker()
 
 
 def render_watchlist(df: pd.DataFrame) -> None:
@@ -1498,10 +1499,24 @@ def render_watchlist(df: pd.DataFrame) -> None:
     st.caption(t("Track companies you're interested in and set a target price alert — above or below "
         "a threshold. Checked live against the current Market Price.")
     )
+    from data.notify import alert_targets
     from data.profile import load_profile
 
     prof = load_profile()
     email_to, sms_to = alert_targets(prof)
+    worker = background_alerts()
+    if worker:
+        market = t("market open") if worker.get("marketOpen") else t("market closed")
+        st.caption(
+            f"⚡ {t('Background alerts running')} · {t('last check')} {worker.get('lastRun') or '—'} · "
+            f"{t('next')} {worker.get('nextRun') or '—'} · {t('prices refreshed')} {worker.get('lastRefresh') or '—'} "
+            f"({market})"
+        )
+        if worker.get("lastError"):
+            st.caption(f"⚠️ {worker['lastError']}")
+        if worker.get("recent"):
+            with st.expander(t("Recent background activity")):
+                st.text("\n".join(worker["recent"]))
     if email_to or sms_to:
         where = " · ".join(x for x in (f"📧 {email_to}" if email_to else "", f"📱 {sms_to}" if sms_to else "") if x)
         st.caption(t("Triggered alerts are sent to") + f" **{where}** " + t("(once per trigger)."))
@@ -1869,7 +1884,7 @@ def render_profile(df: pd.DataFrame) -> None:
                 st.rerun()
 
     if profile["emailAlerts"] or profile["smsAlerts"]:
-        from data.notify import send_test_alert
+        from data.notify import alert_targets, send_test_alert
 
         email_to, sms_to = alert_targets(profile)
         if st.button(t("📨 Send a test alert"), key="test_alert_btn", disabled=not (email_to or sms_to)):
@@ -1986,7 +2001,7 @@ def main() -> None:
                 unsafe_allow_html=True)
 
     version = st.session_state.get("data_version", 0)
-    df = load_data(version)
+    df = load_data((version, DATA_PATH.stat().st_mtime_ns))
     raw = load_raw()
 
     from data.portfolio import load_portfolio, process_open_orders
@@ -2003,17 +2018,13 @@ def main() -> None:
     for result in jobs:
         st.toast(result.message, icon="✅" if result.ok else "⚠️")
 
-    # Email / SMS any newly triggered watchlist alerts (once per trigger per channel).
-    from data.notify import send_alerts
-    from data.profile import load_profile
-    from data.watchlist import check_alerts, load_watchlist, save_watchlist
+    # Email / SMS any newly triggered watchlist alerts right away (the background worker also does this
+    # every few minutes, even with nobody on the page; both share a lock so nothing is sent twice).
+    from data.alert_job import check_and_notify
 
-    email_to, sms_to = alert_targets(load_profile())
-    if email_to or sms_to:
-        wl = load_watchlist()
-        for message in send_alerts(wl, check_alerts(wl, prices), email_to, sms_to):
-            st.toast(message, icon="📨")
-        save_watchlist(wl)
+    background_alerts()
+    for message in check_and_notify(prices):
+        st.toast(message, icon="📨")
 
     render_hero(raw)
     render_sidebar(df)
