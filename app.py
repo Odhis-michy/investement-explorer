@@ -291,6 +291,10 @@ HOME_CSS = """
 .star {font-size:18px;text-decoration:none !important;color:#848E9C !important}
 .star.on {color:#F0B90B !important}
 .home-note {font-size:12px;color:#848E9C;margin-top:18px}
+.mk-stats {display:flex;flex-wrap:wrap;gap:12px 36px;margin:10px 0 2px;padding:12px 16px;border:1px solid #2B3139;
+  border-radius:14px}
+.mk-stats .l {font-size:12px;color:#848E9C}
+.mk-stats .v {font-size:17px;font-weight:700}
 .sb-card {border:1px solid #2B3139;border-radius:12px;padding:14px;margin-bottom:12px;background:#181A20}
 .sb-top {display:flex;align-items:center;gap:12px}
 .sb-avatar {width:46px;height:46px;border-radius:50%;background:#F0B90B;color:#0B0E11;font-weight:700;
@@ -509,6 +513,27 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
             f'<a href="?sort={sort}" target="_self">More ›</a></div>{rows}</div>'
         )
 
+    # Market statistics (illustrative volume from the reconstructed price history).
+    last_bars = pd.DataFrame(
+        [_company_history(raw, c).iloc[-1][["volume", "close"]] for c in df["Company"]], index=df["Company"]
+    )
+    df["Volume"] = df["Company"].map(last_bars["volume"])
+    turnover = float((last_bars["volume"] * last_bars["close"]).sum())
+    stats = [
+        ("Volume (shares)", f"{last_bars['volume'].sum() / 1e6:,.1f} M"),
+        ("Turnover", f"KES {turnover / 1e9:,.2f} Bn"),
+        ("Deals", f"{int(last_bars['volume'].sum() / 2_500):,}"),
+        ("Advancers / decliners", f'<span class="up">{int((df["Change %"] > 0).sum())}</span> / '
+                                  f'<span class="dn">{int((df["Change %"] < 0).sum())}</span>'),
+        ("Market cap", f"KES {df['Market Cap (KES Bn)'].sum():,.0f} Bn"),
+    ]
+    st.markdown(
+        '<div class="mk-stats">'
+        + "".join(f'<div><div class="l">{l}</div><div class="v">{v}</div></div>' for l, v in stats)
+        + '<div class="l" style="align-self:end">NSE today · illustrative</div></div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         '<div class="mk-cards">'
         + card("🔥 Hot · largest", "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %")
@@ -528,6 +553,8 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
         label_visibility="collapsed",
     ) or "All"
 
+    search = st.text_input("Search", placeholder="🔎 Search companies or sectors…", key="mk_search",
+                           label_visibility="collapsed")
     c1, c2 = st.columns([3, 2])
     with c1:
         st.markdown('<div class="mk-title">Top NSE companies by market capitalization</div>', unsafe_allow_html=True)
@@ -560,11 +587,14 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
     else:
         view = df[df["Sector"] == category]
     view = view.sort_values(sort_col, ascending=ascending)
+    if search:
+        view = view[view["Company"].str.contains(search, case=False, regex=False)
+                    | view["Sector"].str.contains(search, case=False, regex=False)]
 
     # --- Markets table ----------------------------------------------------------------------
     if view.empty:
         msg = "Your favorites list is empty — tap ☆ next to a company to add it." if category == "⭐ Favorites" \
-            else "No companies in this category."
+            else "No companies match." if search else "No companies in this category."
         st.info(msg, icon="⭐")
     else:
         body = ""
@@ -585,13 +615,14 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
                 f"<td>{r[PRICE_COL]:,.2f}{prev_html}</td>"
                 f'<td class="{ch_cls}">{ch_text}</td>'
                 f'<td>{r["Market Cap (KES Bn)"]:,.1f} Bn</td>'
+                f'<td>{r["Volume"] / 1e3:,.0f} K</td>'
                 f'<td>{r["Avg Return %"]:+.2f}%</td>'
                 f'<td>{star}<a class="trade-link" target="_self" href="?trade={quote(r["Company"])}">Trade</a></td>'
                 "</tr>"
             )
         st.markdown(
             '<table class="mk-table"><thead><tr><th>Name</th><th>Price (KES)</th>'
-            f"<th>Change · {html.escape(period)}</th><th>Market cap (KES)</th><th>5-yr avg</th><th>Actions</th>"
+            f"<th>Change · {html.escape(period)}</th><th>Market cap (KES)</th><th>Volume</th><th>5-yr avg</th><th>Actions</th>"
             f"</tr></thead><tbody>{body}</tbody></table>",
             unsafe_allow_html=True,
         )
@@ -608,7 +639,7 @@ TRADE_TAB = "📈 Trade"
 
 TRADE_CSS = """
 <style>
-.td-head {display:flex;flex-wrap:wrap;align-items:center;gap:28px;border:1px solid #2B3139;border-radius:14px;
+.td-head {display:flex;flex-wrap:wrap;align-items:center;gap:24px;border:1px solid #2B3139;border-radius:14px;
   padding:14px 18px;margin:4px 0 12px}
 .td-head .who {display:flex;align-items:center;gap:12px}
 .td-head .who b {font-size:18px}
@@ -630,10 +661,25 @@ TRADE_CSS = """
 .td-list a:hover {color:#F0B90B !important}
 .td-list tr.sel td {background:#1E2329}
 .trade-link {color:#F0B90B !important;text-decoration:none !important;font-weight:600;margin-left:12px}
+.ob {width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.ob th {color:#848E9C;font-weight:500;text-align:right;padding:3px 4px}
+.ob th:first-child, .ob td:first-child {text-align:left}
+.ob td {text-align:right;padding:2px 4px;position:relative}
+.ob .mid {font-size:17px;font-weight:700;padding:8px 4px}
+.ob-h {font-size:13px;font-weight:600;margin:4px 0}
+.st-tag {font-size:11px;border-radius:4px;padding:1px 6px;font-weight:600}
+.st-FILLED {background:rgba(14,203,129,.15);color:#0ECB81}
+.st-CANCELLED, .st-EXPIRED {background:#2B3139;color:#848E9C}
+.st-REJECTED {background:rgba(246,70,93,.15);color:#F6465D}
+.st-OPEN, .st-TRIGGERED {background:rgba(240,185,11,.15);color:#F0B90B}
 </style>
 """
 
 RANGES = {"1M": (21, None), "3M": (63, None), "6M": (126, None), "1Y": (252, "W"), "5Y": (None, "W")}
+OVERLAYS = ["MA 7", "MA 25", "EMA 20", "Bollinger"]
+LOWER_PANES = ["Volume", "RSI", "MACD", "None"]
+ORDER_LABELS = {"Market": "MARKET", "Limit": "LIMIT", "Stop-loss": "STOP_LOSS",
+                "Take-profit": "TAKE_PROFIT", "Stop-limit": "STOP_LIMIT"}
 
 
 @st.cache_data
@@ -643,33 +689,55 @@ def _history(company_json: str, return_years: tuple[str, ...], today_iso: str) -
     return build_history(json.loads(company_json), list(return_years), date.fromisoformat(today_iso))
 
 
-def _price_chart(hist: pd.DataFrame, kind: str, price: float, avg_cost: float | None):
+def _company_history(raw: dict, company: str) -> pd.DataFrame:
+    c = next(x for x in raw["companies"] if x["company"] == company)
+    return _history(json.dumps(c, sort_keys=True), tuple(raw["returnYears"]), date.today().isoformat())
+
+
+def _price_chart(full: pd.DataFrame, start, kind: str, overlays: list[str], lower: str,
+                 price: float, avg_cost: float | None):
     import altair as alt
 
-    y_scale = alt.Scale(zero=False)
-    x = alt.X("date:T", title=None, axis=alt.Axis(grid=False))
-    tooltip = [
-        alt.Tooltip("date:T", title="Date"),
-        alt.Tooltip("open:Q", format=",.2f"),
-        alt.Tooltip("high:Q", format=",.2f"),
-        alt.Tooltip("low:Q", format=",.2f"),
-        alt.Tooltip("close:Q", format=",.2f"),
-    ]
+    from data.indicators import bollinger, ema, macd, rsi, sma
+
+    data = full.copy()
+    data["MA 7"] = sma(data["close"], 7)
+    data["MA 25"] = sma(data["close"], 25)
+    data["EMA 20"] = ema(data["close"], 20)
+    data["BB low"], data["BB mid"], data["BB high"] = bollinger(data["close"])
+    data["RSI"] = rsi(data["close"])
+    data["MACD"], data["Signal"], data["Hist"] = macd(data["close"])
+    data = data[data["date"] >= start]
+
+    domain = [data["date"].min().isoformat(), data["date"].max().isoformat()]
+    x = alt.X("date:T", title=None, axis=alt.Axis(grid=False), scale=alt.Scale(domain=domain))
+    tooltip = [alt.Tooltip("date:T", title="Date")] + [
+        alt.Tooltip(f"{c}:Q", format=",.2f") for c in ("open", "high", "low", "close")
+    ] + [alt.Tooltip("volume:Q", format=",.0f")]
+    y = alt.Y("low:Q" if kind == "Candles" else "close:Q", scale=alt.Scale(zero=False), title="KES")
+
     if kind == "Candles":
-        base = alt.Chart(hist).encode(
-            x=x,
-            color=alt.condition("datum.open <= datum.close", alt.value(UP), alt.value(DOWN)),
-            tooltip=tooltip,
+        base = alt.Chart(data).encode(
+            x=x, color=alt.condition("datum.open <= datum.close", alt.value(UP), alt.value(DOWN)), tooltip=tooltip
         )
-        bar_width = max(1.5, min(10.0, 620 / max(len(hist), 1) * 0.7))
-        chart = base.mark_rule().encode(
-            y=alt.Y("low:Q", scale=y_scale, title="KES"), y2="high:Q"
-        ) + base.mark_bar(size=bar_width).encode(y="open:Q", y2="close:Q")
+        bar_width = max(1.5, min(10.0, 560 / max(len(data), 1) * 0.7))
+        chart = base.mark_rule().encode(y=y, y2="high:Q") + base.mark_bar(size=bar_width).encode(
+            y="open:Q", y2="close:Q"
+        )
     else:
-        base = alt.Chart(hist).encode(x=x, tooltip=tooltip)
-        chart = base.mark_area(color=ACCENT, opacity=0.12).encode(
-            y=alt.Y("close:Q", scale=y_scale, title="KES")
-        ) + base.mark_line(color=ACCENT, strokeWidth=2).encode(y="close:Q")
+        base = alt.Chart(data).encode(x=x, tooltip=tooltip)
+        chart = base.mark_area(color=ACCENT, opacity=0.12).encode(y=y) + base.mark_line(
+            color=ACCENT, strokeWidth=2
+        ).encode(y="close:Q")
+
+    colors = {"MA 7": "#F0B90B", "MA 25": "#C0A2FF", "EMA 20": "#00AAE4"}
+    for name in overlays:
+        if name == "Bollinger":
+            band = alt.Chart(data).encode(x=x)
+            chart += band.mark_area(opacity=0.08, color="#848E9C").encode(y="BB low:Q", y2="BB high:Q")
+            chart += band.mark_line(color="#848E9C", strokeWidth=1, strokeDash=[3, 3]).encode(y="BB mid:Q")
+        else:
+            chart += alt.Chart(data).mark_line(color=colors[name], strokeWidth=1.3).encode(x=x, y=f"{name}:Q")
 
     lines = [{"label": f"Last {price:,.2f}", "y": price, "c": ACCENT}]
     if avg_cost:
@@ -679,7 +747,62 @@ def _price_chart(hist: pd.DataFrame, kind: str, price: float, avg_cost: float | 
     chart += ref.mark_text(align="left", dx=4, dy=-6, fontSize=11).encode(
         y="y:Q", x=alt.value(0), text="label:N", color=alt.Color("c:N", scale=None)
     )
-    return chart.properties(height=380)
+    chart = chart.properties(height=330 if lower != "None" else 420)
+
+    if lower == "Volume":
+        pane = alt.Chart(data).mark_bar(size=max(1.0, min(8.0, 560 / max(len(data), 1) * 0.7))).encode(
+            x=x, y=alt.Y("volume:Q", title="Volume", axis=alt.Axis(format="~s")),
+            color=alt.condition("datum.open <= datum.close", alt.value(UP), alt.value(DOWN)), tooltip=tooltip,
+        )
+    elif lower == "RSI":
+        pane = alt.Chart(data).mark_line(color="#C0A2FF").encode(
+            x=x, y=alt.Y("RSI:Q", scale=alt.Scale(domain=[0, 100]), title="RSI 14")
+        ) + alt.Chart(pd.DataFrame({"v": [30, 70]})).mark_rule(strokeDash=[3, 3], color="#848E9C").encode(y="v:Q")
+    elif lower == "MACD":
+        pane = alt.Chart(data).mark_bar().encode(
+            x=x, y=alt.Y("Hist:Q", title="MACD"),
+            color=alt.condition("datum.Hist >= 0", alt.value(UP), alt.value(DOWN)),
+        ) + alt.Chart(data).mark_line(color=ACCENT).encode(x=x, y="MACD:Q") + alt.Chart(data).mark_line(
+            color="#00AAE4"
+        ).encode(x=x, y="Signal:Q")
+    else:
+        return chart, None
+    return chart, pane.properties(height=110)
+
+
+def _order_book_html(company: str, price: float) -> str:
+    from data.market_depth import order_book, recent_trades
+
+    bids, asks = order_book(company, price)
+    top = max(bids["total"].max(), asks["total"].max())
+
+    def rows(frame: pd.DataFrame, cls: str, color: str) -> str:
+        out = ""
+        for _, r in frame.iterrows():
+            pct = r["total"] / top * 100
+            out += (
+                f'<tr style="background:linear-gradient(to left, {color} {pct:.0f}%, transparent {pct:.0f}%)">'
+                f'<td class="{cls}">{r["price"]:,.2f}</td><td>{r["shares"]:,.0f}</td><td>{r["total"]:,.0f}</td></tr>'
+            )
+        return out
+
+    book = (
+        '<div class="ob-h">Order book</div><table class="ob"><tr><th>Price</th><th>Shares</th><th>Total</th></tr>'
+        + rows(asks.iloc[::-1], "dn", "rgba(246,70,93,.12)")
+        + f'<tr><td class="mid" colspan="3">{price:,.2f}</td></tr>'
+        + rows(bids, "up", "rgba(14,203,129,.12)")
+        + "</table>"
+    )
+    tape = "".join(
+        f'<tr><td class="{"up" if t.side == "BUY" else "dn"}">{t.price:,.2f}</td><td>{t.shares:,.0f}</td>'
+        f"<td>{t.time}</td></tr>"
+        for t in recent_trades(company, price).itertuples()
+    )
+    return (
+        book
+        + '<div class="ob-h" style="margin-top:14px">Recent trades</div>'
+        + f'<table class="ob"><tr><th>Price</th><th>Shares</th><th>Time</th></tr>{tape}</table>'
+    )
 
 
 def _set_qty(qty_key: str, pct_key: str, max_shares: int) -> None:
@@ -691,11 +814,15 @@ def _set_qty(qty_key: str, pct_key: str, max_shares: int) -> None:
 def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
     from urllib.parse import quote
 
-    from data.portfolio import buy, cancel_order, load_portfolio, place_limit_order, sell
+    from data.fees import TOTAL_RATE, fee_breakdown, total_fees
+    from data.portfolio import ORDER_TYPES, cancel_order, load_portfolio, place_order
+    from data.price_history import resample
+    from data.profile import load_profile
+    from data.statements import contract_note_pdf
 
     st.markdown(TRADE_CSS, unsafe_allow_html=True)
     sectors = sorted(df["Sector"].unique())
-    companies = {c["company"]: c for c in raw["companies"]}
+    companies = set(df["Company"])
 
     # A ?trade=<company> link (from the markets table or the list below) selects that company once.
     wanted = st.query_params.get("trade")
@@ -710,7 +837,7 @@ def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
     options = sorted(df["Company"] if sector == "All sectors" else df.loc[df["Sector"] == sector, "Company"])
     if st.session_state.get("td_company") not in options:
         st.session_state["td_company"] = options[0]
-    company = st.selectbox("Company", options, key="td_company")
+    company = st.selectbox("🔎 Search or pick a company", options, key="td_company")
 
     row = df.loc[df["Company"] == company].iloc[0]
     price = float(row[PRICE_COL])
@@ -721,13 +848,17 @@ def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
     portfolio = load_portfolio()
     holding = next((h for h in portfolio["holdings"] if h["company"] == company), None)
     held = holding["shares"] if holding else 0.0
+    hist = _company_history(raw, company)
+    today_bar = hist.iloc[-1]
 
-    # --- Header strip ---------------------------------------------------------------
+    # --- Header strip with market statistics ------------------------------------------------
     stats = [
         ("Change", f'<span class="{ch_cls}">{ch_text}</span>'),
-        ("Previous", f"{prev:,.2f}" if pd.notna(prev) else "—"),
+        ("Day high", f'{today_bar["high"]:,.2f}'),
+        ("Day low", f'{today_bar["low"]:,.2f}'),
+        ("Volume", f'{today_bar["volume"]:,.0f}'),
+        ("Turnover (KES)", f'{today_bar["volume"] * today_bar["close"] / 1e6:,.1f} M'),
         ("Market cap", f'{row["Market Cap (KES Bn)"]:,.1f} Bn'),
-        ("5-yr avg return", f'{row["Avg Return %"]:+.2f}%'),
         ("You hold", f"{held:g} shares"),
     ]
     st.markdown(
@@ -739,75 +870,98 @@ def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    chart_col, order_col = st.columns([7, 3], gap="medium")
+    book_col, chart_col, order_col = st.columns([2.2, 5.3, 2.8], gap="small")
 
-    # --- Chart ---------------------------------------------------------------------------
+    with book_col:
+        st.markdown(_order_book_html(company, price), unsafe_allow_html=True)
+
+    # --- Chart ------------------------------------------------------------------------------
     with chart_col:
         r1, r2 = st.columns([3, 2])
         rng = r1.segmented_control("Range", list(RANGES), default="6M", key="td_range",
                                    label_visibility="collapsed") or "6M"
         kind = r2.segmented_control("Chart", ["Candles", "Line"], default="Candles", key="td_kind",
                                     label_visibility="collapsed") or "Candles"
-        hist = _history(json.dumps(companies[company], sort_keys=True), tuple(raw["returnYears"]),
-                        date.today().isoformat())
+        i1, i2 = st.columns([3, 2])
+        overlays = i1.multiselect("Indicators", OVERLAYS, default=["MA 7", "MA 25"], key="td_overlays",
+                                  placeholder="Add indicators", label_visibility="collapsed")
+        lower = i2.segmented_control("Lower pane", LOWER_PANES, default="Volume", key="td_lower",
+                                     label_visibility="collapsed") or "None"
         n_days, rule = RANGES[rng]
-        view = hist.tail(n_days) if n_days else hist
-        if rule:
-            from data.price_history import resample
-
-            view = resample(view, rule)
-        st.altair_chart(_price_chart(view, kind, price, holding["avgCost"] if holding else None),
-                        use_container_width=True)
+        start = hist["date"].iloc[-n_days] if n_days else hist["date"].iloc[0]
+        full = resample(hist, rule) if rule else hist
+        main_chart, pane = _price_chart(full, start, kind, overlays, lower, price,
+                                        holding["avgCost"] if holding else None)
+        st.altair_chart(main_chart, use_container_width=True)
+        if pane is not None:
+            st.altair_chart(pane, use_container_width=True)
         st.markdown(
-            '<div class="td-note">Illustrative price history reconstructed from yearly returns — '
-            "not real trading data. The last point is the current market price.</div>",
+            '<div class="td-note">Illustrative price history, volume and order book — reconstructed or simulated, '
+            "not real NSE trading data. The last candle ends at the current market price.</div>",
             unsafe_allow_html=True,
         )
 
-    # --- Order panel ----------------------------------------------------------------------
+    # --- Order panel ------------------------------------------------------------------------
     with order_col:
         if msg := st.session_state.pop("td_msg", None):
             (st.success if msg[0] else st.error)(msg[1])
 
         side = st.segmented_control("Side", ["Buy", "Sell"], default="Buy", key="td_side",
                                     label_visibility="collapsed") or "Buy"
-        otype = st.segmented_control("Order type", ["Market", "Limit"], default="Market", key="td_type",
-                                     label_visibility="collapsed") or "Market"
-        if otype == "Limit":
-            exec_price = st.number_input("Limit price (KES)", min_value=0.01, value=price, step=0.05,
-                                         format="%.2f", key=f"td_limit_{company}")
-        else:
-            exec_price = price
-            st.markdown(f'<div class="td-sum"><span>Market price</span><b>KES {price:,.2f}</b></div>',
-                        unsafe_allow_html=True)
+        type_opts = ["Market", "Limit", "Stop-limit"] + (["Stop-loss", "Take-profit"] if side == "Sell" else [])
+        if st.session_state.get("td_type") not in type_opts:
+            st.session_state["td_type"] = "Market"
+        otype_label = st.selectbox("Order type", type_opts, key="td_type")
+        otype = ORDER_LABELS[otype_label]
 
-        max_shares = int(portfolio["cash"] // exec_price) if side == "Buy" else int(held)
+        limit = stop = None
+        if otype in ("STOP_LOSS", "TAKE_PROFIT", "STOP_LIMIT"):
+            default_stop = price * (0.95 if (otype == "STOP_LOSS" or (otype == "STOP_LIMIT" and side == "Sell")) else 1.05)
+            label = {"STOP_LOSS": "Stop price (sell if at or below)", "TAKE_PROFIT": "Target price (sell if at or above)",
+                     "STOP_LIMIT": "Stop / trigger price"}[otype]
+            stop = st.number_input(label, min_value=0.01, value=round(default_stop, 2), step=0.05, format="%.2f",
+                                   key=f"td_stop_{company}_{otype}_{side}")
+        if otype in ("LIMIT", "STOP_LIMIT"):
+            limit = st.number_input("Limit price (KES)", min_value=0.01, value=float(stop or price), step=0.05,
+                                    format="%.2f", key=f"td_limit_{company}_{otype}_{side}")
+        tif = "GTC"
+        if otype != "MARKET":
+            tif_label = st.segmented_control("Time in force", ["Good till cancelled", "Day only"],
+                                             default="Good till cancelled", key="td_tif",
+                                             label_visibility="collapsed") or "Good till cancelled"
+            tif = "DAY" if tif_label == "Day only" else "GTC"
+
+        exec_price = limit or stop or price
+        max_shares = int(portfolio["cash"] // (exec_price * (1 + TOTAL_RATE))) if side == "Buy" else int(held)
         qty_key, pct_key = f"td_qty_{company}_{side}", f"td_pct_{company}_{side}"
         qty = st.number_input("Shares", min_value=0, step=1, key=qty_key)
         st.segmented_control("Amount", ["25%", "50%", "75%", "100%"], key=pct_key, label_visibility="collapsed",
                              on_change=_set_qty, args=(qty_key, pct_key, max_shares))
 
+        consideration = qty * exec_price
+        fees = total_fees(consideration)
+        net = consideration + fees if side == "Buy" else consideration - fees
         avail = f"KES {portfolio['cash']:,.2f}" if side == "Buy" else f"{held:g} shares"
         st.markdown(
             f'<div class="td-sum"><span>Available</span><b>{avail}</b></div>'
             f'<div class="td-sum"><span>Max {side.lower()}</span><b>{max_shares:,} shares</b></div>'
-            f'<div class="td-sum"><span>Total</span><b>KES {qty * exec_price:,.2f}</b></div>',
+            f'<div class="td-sum"><span>Consideration</span><b>KES {consideration:,.2f}</b></div>'
+            f'<div class="td-sum"><span>Fees (~{TOTAL_RATE * 100:.2f}%)</span><b>KES {fees:,.2f}</b></div>'
+            f'<div class="td-sum"><span>{"Total cost" if side == "Buy" else "You receive"}</span>'
+            f"<b>KES {net:,.2f}</b></div>",
             unsafe_allow_html=True,
         )
+        with st.popover("Fee breakdown", use_container_width=True):
+            st.dataframe(pd.DataFrame(fee_breakdown(consideration), columns=["Charge", "KES"]),
+                         hide_index=True, use_container_width=True)
+            st.caption("Typical NSE retail charges; your broker's tariff may differ.")
 
         if st.button(f"{side} {company}", key=f"td_submit_{side.lower()}", use_container_width=True):
-            if qty <= 0:
-                st.session_state["td_msg"] = (False, "Enter how many shares to trade.")
-            elif otype == "Market":
-                result = (buy if side == "Buy" else sell)(portfolio, company, float(qty), price)
-                st.session_state["td_msg"] = (result.ok, result.message)
-            else:
-                result = place_limit_order(portfolio, side.upper(), company, float(qty), float(exec_price))
-                st.session_state["td_msg"] = (result.ok, result.message)
+            result = place_order(portfolio, side, company, float(qty), otype, price, limit=limit, stop=stop, tif=tif)
+            st.session_state["td_msg"] = (result.ok, result.message)
             st.rerun()
         st.caption("Simulated trading with virtual cash — no real orders or money.")
 
-        # Mini market list for the chosen sector — click a name to trade it.
         st.markdown(f"**{html.escape(sector)}**")
         rows = ""
         for _, r in df[df["Company"].isin(options)].sort_values("Market Cap (KES Bn)", ascending=False).iterrows():
@@ -821,42 +975,84 @@ def render_trade_desk(df: pd.DataFrame, raw: dict) -> None:
             )
         st.markdown(f'<table class="td-list">{rows}</table>', unsafe_allow_html=True)
 
-    # --- Orders, history, holdings -----------------------------------------------------------
-    t_open, t_hist, t_hold = st.tabs(
-        [f"Open orders ({len(portfolio['openOrders'])})", "Trade history", "Holdings"]
+    # --- Orders, history, holdings ------------------------------------------------------------
+    price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+    t_open, t_orders, t_hist, t_hold = st.tabs(
+        [f"Open orders ({len(portfolio['openOrders'])})", "Order history", "Trade history", "Holdings"]
     )
     with t_open:
         if not portfolio["openOrders"]:
-            st.caption("No open orders. Limit orders wait here until the market price reaches your limit.")
+            st.caption("No open orders. Limit, stop and take-profit orders wait here until their price is reached.")
         for o in portfolio["openOrders"]:
             c1, c2 = st.columns([6, 1])
             color = "up" if o["side"] == "BUY" else "dn"
+            status = "TRIGGERED" if o.get("triggered") else "OPEN"
+            prices = " · ".join(
+                p for p in (f"stop {o['stop']:,.2f}" if o.get("stop") else "",
+                            f"limit {o['limit']:,.2f}" if o.get("limit") else "") if p
+            )
             c1.markdown(
-                f'<span class="{color}">{o["side"]}</span> {o["shares"]:g} × **{o["company"]}** '
-                f'@ limit KES {o["limit"]:,.2f} · now KES {float(df.loc[df["Company"] == o["company"], PRICE_COL].iloc[0]):,.2f}'
-                f' · placed {o["placedAt"][:16].replace("T", " ")}',
+                f'<span class="st-tag st-{status}">{status}</span> <span class="{color}">{o["side"]}</span> '
+                f'{ORDER_TYPES[o["type"]]} · {o["shares"]:g} × **{o["company"]}** · {prices} · {o["tif"]} · '
+                f'now KES {price_by_company.get(o["company"], 0):,.2f} · placed {o["placedAt"][:16].replace("T", " ")}',
                 unsafe_allow_html=True,
             )
             if c2.button("Cancel", key=f"td_cancel_{o['id']}"):
                 result = cancel_order(portfolio, o["id"])
                 st.session_state["td_msg"] = (result.ok, result.message)
                 st.rerun()
+    with t_orders:
+        if portfolio["orderHistory"]:
+            hist_rows = [
+                {
+                    "#": o["id"],
+                    "Status": o["status"],
+                    "Placed": o["placedAt"][:16].replace("T", " "),
+                    "Closed": o["closedAt"][:16].replace("T", " "),
+                    "Company": o["company"],
+                    "Side": o["side"],
+                    "Type": ORDER_TYPES[o["type"]],
+                    "Shares": o["shares"],
+                    "Stop": o.get("stop"),
+                    "Limit": o.get("limit"),
+                    "Fill price": o.get("fillPrice"),
+                    "TIF": o["tif"],
+                    "Note": o.get("note", ""),
+                }
+                for o in reversed(portfolio["orderHistory"])
+            ]
+            st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No orders yet.")
     with t_hist:
-        trades = [t for t in reversed(portfolio["trades"]) if t["action"] in ("BUY", "SELL")]
+        trades = [(i, t) for i, t in enumerate(portfolio["trades"]) if t["action"] in ("BUY", "SELL")]
         if trades:
-            st.dataframe(pd.DataFrame(trades), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame([t for _, t in reversed(trades)]), use_container_width=True, hide_index=True)
+            labels = {
+                f'#{i + 1} · {t["timestamp"][:16].replace("T", " ")} · {t["action"]} {t["shares"]:g} {t["company"]}': i
+                for i, t in reversed(trades)
+            }
+            n1, n2 = st.columns([3, 1])
+            pick = n1.selectbox("Contract note for trade", list(labels), key="td_note_pick")
+            idx = labels[pick]
+            n2.download_button(
+                "📄 Contract note (PDF)",
+                data=contract_note_pdf(portfolio["trades"][idx], load_profile()["fullName"], idx + 1),
+                file_name=f"contract_note_{idx + 1:05d}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
         else:
             st.caption("No trades yet.")
     with t_hold:
         if portfolio["holdings"]:
-            price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
             st.dataframe(
                 pd.DataFrame(
                     [
                         {
                             "Company": h["company"],
                             "Shares": h["shares"],
-                            "Avg cost": round(h["avgCost"], 2),
+                            "Avg cost (incl. fees)": round(h["avgCost"], 2),
                             "Price": price_by_company.get(h["company"], h["avgCost"]),
                             "Value (KES)": round(h["shares"] * price_by_company.get(h["company"], h["avgCost"]), 2),
                             "P&L %": round((price_by_company.get(h["company"], h["avgCost"]) / h["avgCost"] - 1) * 100, 2),
@@ -931,25 +1127,61 @@ def render_live_refresh(raw: dict) -> None:
         st.rerun()
 
 
-def render_trading(df: pd.DataFrame) -> None:
+def _value_history(portfolio: dict, raw: dict) -> pd.DataFrame:
+    """Daily portfolio value rebuilt from the trade log and (illustrative) price history."""
+    trades = portfolio["trades"]
+    if not trades:
+        return pd.DataFrame(columns=["date", "value"])
+    days = pd.bdate_range(trades[0]["timestamp"][:10], date.today())
+    if len(days) == 0 or days[-1].date() != date.today():
+        days = days.append(pd.DatetimeIndex([pd.Timestamp(date.today())]))
+    held_companies = {t["company"] for t in trades if t["action"] in ("BUY", "SELL")}
+    closes = {
+        c: _company_history(raw, c).set_index("date")["close"].reindex(days, method="ffill")
+        for c in held_companies
+        if any(x["company"] == c for x in raw["companies"])
+    }
+    rows, cash, shares, i = [], portfolio["startingCash"], {}, 0
+    for day in days:
+        day_iso = day.date().isoformat()
+        while i < len(trades) and trades[i]["timestamp"][:10] <= day_iso:
+            t = trades[i]
+            cash = t["cashAfter"]
+            if t["action"] in ("BUY", "SELL"):
+                shares[t["company"]] = shares.get(t["company"], 0) + (t["shares"] if t["action"] == "BUY" else -t["shares"])
+            i += 1
+        value = cash + sum(n * float(closes[c].get(day, 0) or 0) for c, n in shares.items() if c in closes)
+        rows.append({"date": day, "value": round(value, 2)})
+    return pd.DataFrame(rows)
+
+
+def render_trading(df: pd.DataFrame, raw: dict) -> None:
+    import altair as alt
+
     from data.portfolio import (
-        buy,
+        add_auto_invest,
         deposit,
         holdings_market_value,
         load_portfolio,
+        remove_auto_invest,
         reset_portfolio,
-        sell,
+        DIVIDEND_WHT,
+        set_auto_invest_active,
+        shares_held_on,
         withdraw,
     )
+    from data.profile import load_profile
+    from data.statements import statement_pdf
 
     portfolio = load_portfolio()
+    profile = load_profile()
     price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+    sector_of = dict(zip(df["Company"], df["Sector"]))
 
     st.subheader("💼 Paper Trading Portfolio")
     st.caption(
-        "Simulated trading only — no real money or real brokerage orders are involved. Buys "
-        "and sells are priced off the current **Market Price** column and tracked locally in "
-        "`data/portfolio.json`."
+        "Simulated trading only — no real money or real brokerage orders are involved. Trades include typical "
+        "NSE charges and are tracked locally in `data/portfolio.json`. To buy or sell, use the **📈 Trade** tab."
     )
 
     holdings_value = holdings_market_value(portfolio, price_by_company)
@@ -957,16 +1189,139 @@ def render_trading(df: pd.DataFrame) -> None:
     baseline = portfolio["startingCash"] + portfolio.get("netDeposits", 0.0)
     pnl = total_value - baseline
     pnl_pct = (pnl / baseline * 100) if baseline else 0.0
+    dividends = sum(t["total"] for t in portfolio["trades"] if t["action"] == "DIVIDEND")
+    fees_paid = sum(t.get("fees", 0) for t in portfolio["trades"] if t["action"] in ("BUY", "SELL"))
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Cash (KES)", f"{portfolio['cash']:,.2f}")
     c2.metric("Holdings value (KES)", f"{holdings_value:,.2f}")
     c3.metric("Total portfolio (KES)", f"{total_value:,.2f}")
     c4.metric("Total P&L (KES)", f"{pnl:,.2f}", f"{pnl_pct:+.2f}%")
+    c5.metric("Dividends / fees paid", f"{dividends:,.0f} / {fees_paid:,.0f}")
 
-    st.info("To buy or sell shares, use the **📈 Trade** tab.", icon="📈")
+    # --- Portfolio analysis ------------------------------------------------------------------
+    st.markdown("#### 📊 Portfolio analysis")
+    a1, a2 = st.columns([2, 3])
+    with a1:
+        alloc = {"Cash": portfolio["cash"]}
+        for h in portfolio["holdings"]:
+            sec = sector_of.get(h["company"], "Other")
+            alloc[sec] = alloc.get(sec, 0) + h["shares"] * price_by_company.get(h["company"], h["avgCost"])
+        alloc_df = pd.DataFrame({"Asset": list(alloc), "Value": list(alloc.values())})
+        alloc_df["Share"] = alloc_df["Value"] / alloc_df["Value"].sum()
+        palette = [ACCENT, *SECTOR_COLORS[1:]]
+        donut = (
+            alt.Chart(alloc_df)
+            .mark_arc(innerRadius=60, stroke="#0B0E11", strokeWidth=2)
+            .encode(
+                theta="Value:Q",
+                color=alt.Color("Asset:N", scale=alt.Scale(range=palette), legend=alt.Legend(title=None, orient="bottom", columns=2)),
+                tooltip=["Asset", alt.Tooltip("Value:Q", format=",.0f"), alt.Tooltip("Share:Q", format=".1%")],
+            )
+            .properties(height=300, title="Allocation by sector")
+        )
+        st.altair_chart(donut, use_container_width=True)
+    with a2:
+        vh = _value_history(portfolio, raw)
+        if len(vh) > 1:
+            line = (
+                alt.Chart(vh)
+                .mark_line(color=ACCENT, strokeWidth=2)
+                .encode(
+                    x=alt.X("date:T", title=None),
+                    y=alt.Y("value:Q", title="KES", scale=alt.Scale(zero=False)),
+                    tooltip=[alt.Tooltip("date:T"), alt.Tooltip("value:Q", format=",.2f", title="Value")],
+                )
+                .properties(height=300, title="Portfolio value over time")
+            )
+            st.altair_chart(line, use_container_width=True)
+        else:
+            st.info("Your value-over-time chart appears after your first trade.", icon="📈")
 
-    st.markdown("**Cash management (deposit / withdraw)**")
+    if portfolio["holdings"]:
+        by_sector = {}
+        for h in portfolio["holdings"]:
+            sec = sector_of.get(h["company"], "Other")
+            val = h["shares"] * price_by_company.get(h["company"], h["avgCost"])
+            cost = h["shares"] * h["avgCost"]
+            v, c = by_sector.get(sec, (0.0, 0.0))
+            by_sector[sec] = (v + val, c + cost)
+        st.dataframe(
+            pd.DataFrame(
+                [{"Sector": s, "Value (KES)": round(v, 2), "Cost (KES)": round(c, 2),
+                  "Unrealized P&L (KES)": round(v - c, 2), "P&L %": round((v / c - 1) * 100, 2) if c else 0.0}
+                 for s, (v, c) in sorted(by_sector.items(), key=lambda kv: -kv[1][0])]
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --- Auto-invest -------------------------------------------------------------------------
+    st.markdown("#### 🔁 Auto-invest")
+    st.caption("Buy a fixed amount of a company every week or month. Plans run automatically when the app is "
+               "opened on or after their due date (missed periods aren't back-filled).")
+    with st.form("auto_invest_form"):
+        f1, f2, f3, f4 = st.columns([3, 2, 2, 2])
+        ai_company = f1.selectbox("Company", sorted(df["Company"]), key="ai_company")
+        ai_amount = f2.number_input("Amount (KES)", min_value=100.0, step=500.0,
+                                    value=float(profile["monthlyBudget"] or 10_000), key="ai_amount")
+        ai_freq = f3.selectbox("Frequency", ["Monthly", "Weekly"], key="ai_freq")
+        ai_start = f4.date_input("First run", value=date.today(), min_value=date.today(), key="ai_start")
+        if st.form_submit_button("➕ Add plan", type="primary"):
+            result = add_auto_invest(portfolio, ai_company, float(ai_amount), ai_freq, ai_start)
+            st.session_state["pf_msg"] = (result.ok, result.message)
+            st.rerun()
+    if msg := st.session_state.pop("pf_msg", None):
+        (st.success if msg[0] else st.error)(msg[1])
+    for plan in portfolio["autoInvest"]:
+        p1, p2, p3 = st.columns([6, 1, 1])
+        state = "Active" if plan["active"] else "Paused"
+        p1.markdown(
+            f'**#{plan["id"]} {plan["company"]}** · KES {plan["amount"]:,.0f} {plan["frequency"].lower()} · '
+            f'next run {plan["nextRun"]} · last run {plan["lastRun"] or "—"} · '
+            f'<span class="st-tag st-{"FILLED" if plan["active"] else "CANCELLED"}">{state}</span>',
+            unsafe_allow_html=True,
+        )
+        if p2.button("Resume" if not plan["active"] else "Pause", key=f"ai_toggle_{plan['id']}"):
+            set_auto_invest_active(portfolio, plan["id"], not plan["active"])
+            st.rerun()
+        if p3.button("Delete", key=f"ai_del_{plan['id']}"):
+            remove_auto_invest(portfolio, plan["id"])
+            st.rerun()
+
+    # --- Dividend income ------------------------------------------------------------------------
+    st.markdown("#### 💰 Dividend income")
+    events = load_corporate_actions()
+    today_iso = date.today().isoformat()
+    upcoming = []
+    for ev in events:
+        if ev.get("dps") and ev["paymentDate"] > today_iso:
+            # Before book closure, today's holding counts; after it, only what was held on that date.
+            if ev["bookClosure"] >= today_iso:
+                held = next((h["shares"] for h in portfolio["holdings"] if h["company"] == ev["company"]), 0)
+            else:
+                held = shares_held_on(portfolio, ev["company"], ev["bookClosure"])
+            if held:
+                upcoming.append({
+                    "Company": ev["company"], "Type": ev["type"], "DPS (KES)": ev["dps"],
+                    "Book closure": ev["bookClosure"], "Payment": ev["paymentDate"], "Qualifying shares": held,
+                    "Expected net (KES)": round(held * ev["dps"] * (1 - DIVIDEND_WHT), 2),
+                })
+    received = [t for t in portfolio["trades"] if t["action"] == "DIVIDEND"]
+    d1, d2 = st.columns(2)
+    d1.metric("Dividends received (net)", f"KES {dividends:,.2f}")
+    d2.metric("Expected from upcoming payments", f"KES {sum(u['Expected net (KES)'] for u in upcoming):,.2f}")
+    if upcoming:
+        st.dataframe(pd.DataFrame(upcoming), use_container_width=True, hide_index=True)
+        st.caption("You must hold the shares at book closure to qualify. Paid automatically, less 5% withholding tax.")
+    else:
+        st.caption("No upcoming dividends on your holdings — see the 🗓️ Calendar tab for dividend-paying companies.")
+    if received:
+        st.dataframe(pd.DataFrame(received)[["timestamp", "company", "shares", "price", "gross", "fees", "total", "note"]]
+                     .rename(columns={"price": "dps", "fees": "tax"}), use_container_width=True, hide_index=True)
+
+    # --- Cash management ----------------------------------------------------------------------
+    st.markdown("#### 🏦 Cash management")
     st.caption("Simulates moving cash in or out of your virtual brokerage account.")
     dep_col, wd_col = st.columns(2)
     with dep_col:
@@ -984,64 +1339,74 @@ def render_trading(df: pd.DataFrame) -> None:
             if result.ok:
                 st.rerun()
 
-    st.divider()
-    st.markdown("**Current holdings**")
+    # --- Holdings & history -----------------------------------------------------------------------
+    st.markdown("#### 📋 Holdings")
     holdings_rows = []
     for h in portfolio["holdings"]:
         cur_price = float(price_by_company.get(h["company"], h["avgCost"]))
         market_value = h["shares"] * cur_price
         cost_basis = h["shares"] * h["avgCost"]
         unrealized = market_value - cost_basis
-        unrealized_pct = (unrealized / cost_basis * 100) if cost_basis else 0.0
         holdings_rows.append(
             {
                 "Company": h["company"],
+                "Sector": sector_of.get(h["company"], ""),
                 "Shares": h["shares"],
-                "Avg Cost (KES)": round(h["avgCost"], 2),
+                "Avg Cost incl. fees (KES)": round(h["avgCost"], 2),
                 "Current Price (KES)": round(cur_price, 2),
                 "Market Value (KES)": round(market_value, 2),
                 "Unrealized P&L (KES)": round(unrealized, 2),
-                "Unrealized P&L %": round(unrealized_pct, 2),
+                "Unrealized P&L %": round(unrealized / cost_basis * 100, 2) if cost_basis else 0.0,
             }
         )
     if holdings_rows:
         st.dataframe(pd.DataFrame(holdings_rows).set_index("Company"), use_container_width=True)
     else:
-        st.caption("No holdings yet — place a buy order above to get started.")
+        st.caption("No holdings yet — place a buy order in the 📈 Trade tab to get started.")
 
-    st.markdown("**Trade history**")
+    st.markdown("#### 🧾 Transaction history")
     if portfolio["trades"]:
         st.dataframe(pd.DataFrame(list(reversed(portfolio["trades"]))), use_container_width=True, hide_index=True)
     else:
-        st.caption("No trades yet.")
+        st.caption("No transactions yet.")
 
-    st.divider()
-    st.markdown("**📄 Portfolio statement**")
-    st.caption("Download your current holdings and full trade/cash history as CSV.")
-    s1, s2 = st.columns(2)
-    with s1:
-        holdings_csv = pd.DataFrame(holdings_rows).to_csv(index=False) if holdings_rows else ""
+    # --- Statements ----------------------------------------------------------------------------
+    st.markdown("#### 📄 Statements")
+    months = sorted({t["timestamp"][:7] for t in portfolio["trades"]}, reverse=True)
+    s1, s2, s3, s4 = st.columns(4)
+    period = s1.selectbox("Statement period", ["All time", *months], key="stmt_period",
+                          label_visibility="collapsed")
+    with s2:
         st.download_button(
-            "⬇️ Download holdings (CSV)",
-            data=holdings_csv,
+            "📄 Statement (PDF)",
+            data=statement_pdf(portfolio, profile["fullName"], price_by_company, None if period == "All time" else period),
+            file_name=f"statement_{period.replace(' ', '_').lower()}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    with s3:
+        st.download_button(
+            "⬇️ Holdings (CSV)",
+            data=pd.DataFrame(holdings_rows).to_csv(index=False) if holdings_rows else "",
             file_name="holdings_statement.csv",
             mime="text/csv",
             disabled=not holdings_rows,
+            use_container_width=True,
         )
-    with s2:
-        trades_csv = (
-            pd.DataFrame(list(reversed(portfolio["trades"]))).to_csv(index=False) if portfolio["trades"] else ""
-        )
+    with s4:
         st.download_button(
-            "⬇️ Download trade history (CSV)",
-            data=trades_csv,
+            "⬇️ Transactions (CSV)",
+            data=pd.DataFrame(list(reversed(portfolio["trades"]))).to_csv(index=False) if portfolio["trades"] else "",
             file_name="trade_history_statement.csv",
             mime="text/csv",
             disabled=not portfolio["trades"],
+            use_container_width=True,
         )
+    st.caption("Contract notes for individual trades are in the 📈 Trade tab → Trade history.")
 
     with st.expander("⚠️ Reset portfolio"):
-        st.caption("Wipes cash, holdings, and trade history back to the starting balance. Cannot be undone.")
+        st.caption("Wipes cash, holdings, orders, auto-invest plans and history back to the starting balance. "
+                   "Cannot be undone.")
         if st.button("Reset portfolio to starting cash", key="reset_portfolio_btn"):
             reset_portfolio()
             st.success("Portfolio reset.")
@@ -1066,6 +1431,17 @@ def render_watchlist(df: pd.DataFrame) -> None:
         "Track companies you're interested in and set a target price alert — above or below "
         "a threshold. Checked live against the current Market Price."
     )
+    from data.notify import email_configured
+    from data.profile import load_profile
+
+    prof = load_profile()
+    if prof["emailAlerts"] and prof["email"] and email_configured():
+        st.caption(f"📧 Triggered alerts are emailed to **{prof['email']}** (once per trigger).")
+    elif prof["emailAlerts"]:
+        st.caption("📧 Email alerts are on, but need an email in your profile and SMTP settings in `.env` "
+                   "(see `.env.example`).")
+    else:
+        st.caption("📧 Turn on **Email me price alerts** in the 👤 Profile tab to get alerts by email.")
 
     for t in check_alerts(wl, price_by_company):
         arrow = "risen above" if t["direction"] == "above" else "fallen below"
@@ -1133,8 +1509,72 @@ def load_news() -> list[dict]:
     return json.loads(path.read_text())["items"]
 
 
-def render_news() -> None:
+AI_NOTES_PATH = Path(__file__).parent / "data" / "ai_notes.json"
+
+
+def load_ai_notes() -> list[dict]:
+    return json.loads(AI_NOTES_PATH.read_text()) if AI_NOTES_PATH.exists() else []
+
+
+def generate_ai_note(df: pd.DataFrame, subject: str) -> str:
+    """Ask Groq for a market brief ("Daily market brief") or a single-company research note."""
+    from groq import Groq
+
+    if subject == "Daily market brief":
+        prev = df[PREV_PRICE_COL].where(df[PREV_PRICE_COL] > 0)
+        data = df.assign(**{"Change %": ((df[PRICE_COL] / prev - 1) * 100).round(2)})
+        context = data[["Company", "Sector", PRICE_COL, "Change %", "Avg Return %"]].to_csv(index=False)
+        task = ("Write a concise daily NSE market brief (about 200 words): overall tone, top gainers and losers, "
+                "sector themes, and 2-3 things to watch. Use markdown headings and bullets.")
+    else:
+        row = df[df["Company"] == subject]
+        context = row.to_csv(index=False)
+        task = (f"Write a short equity research note on {subject} (about 250 words) with sections: Snapshot, "
+                "Performance (use the FY returns), Valuation context, Key risks, Bottom line. Use markdown.")
+    client = Groq(api_key=GROQ_API_KEY)
+    completion = client.chat.completions.create(
+        model=GROQ_MODEL,
+        temperature=0.4,
+        max_tokens=900,
+        messages=[
+            {"role": "system", "content": "You are a sell-side equity analyst covering the Nairobi Securities "
+             "Exchange. Base figures only on the data provided; it is illustrative demo data. End with one line: "
+             "'Illustrative AI-generated note — not financial advice.'"},
+            {"role": "user", "content": f"{task}\n\nData (CSV):\n{context}"},
+        ],
+    )
+    return completion.choices[0].message.content
+
+
+def render_news(df: pd.DataFrame) -> None:
     st.subheader("📰 Research & market news")
+
+    # --- AI research desk ---------------------------------------------------------------
+    st.markdown("#### 🤖 AI research desk")
+    notes = load_ai_notes()
+    if not GROQ_API_KEY:
+        st.info("Set `GROQ_API_KEY` in `.env` to generate AI market briefs and company research notes.", icon="🔑")
+    else:
+        g1, g2 = st.columns([3, 1])
+        subject = g1.selectbox("Generate", ["Daily market brief", *sorted(df["Company"])], key="ai_subject",
+                               label_visibility="collapsed")
+        if g2.button("✨ Generate note", type="primary", use_container_width=True):
+            with st.spinner("Drafting the note…"):
+                try:
+                    body = generate_ai_note(df, subject)
+                    notes.insert(0, {"date": datetime.now().strftime("%Y-%m-%d %H:%M"), "subject": subject, "body": body})
+                    AI_NOTES_PATH.write_text(json.dumps(notes[:30], indent=2))
+                except Exception as exc:  # noqa: BLE001 - surface API/config errors
+                    st.error(f"The AI research desk hit an error: `{exc}`")
+    for i, note in enumerate(notes[:10]):
+        with st.expander(f"{note['subject']} · {note['date']}", expanded=i == 0):
+            st.markdown(note["body"])
+    if notes and st.button("Clear AI notes", key="ai_notes_clear"):
+        AI_NOTES_PATH.unlink(missing_ok=True)
+        st.rerun()
+
+    # --- Curated sample feed -----------------------------------------------------------------
+    st.markdown("#### 🗞️ Market news")
     st.caption(
         "Curated sample research notes and market commentary for this demo — not a live news "
         "feed, and not financial advice."
@@ -1187,13 +1627,71 @@ def load_ipo_calendar() -> list[dict]:
     return json.loads(path.read_text())["events"]
 
 
-def render_ipo_calendar() -> None:
-    st.subheader("🗓️ IPO & Rights Issue calendar")
+def load_corporate_actions() -> list[dict]:
+    path = Path(__file__).parent / "data" / "corporate_actions.json"
+    return json.loads(path.read_text())["events"]
+
+
+def render_calendar(df: pd.DataFrame) -> None:
+    from data.portfolio import load_portfolio
+
+    st.subheader("🗓️ Dividends & corporate actions")
+    st.caption(
+        "Illustrative sample calendar — not official announcements. Hold shares at **book closure** to qualify; "
+        "cash dividends are paid into your paper portfolio on the **payment date**, less 5% withholding tax."
+    )
+    events = load_corporate_actions()
+    held = {h["company"] for h in load_portfolio()["holdings"]}
+    today_iso = date.today().isoformat()
+    price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+
+    upcoming = sorted((e for e in events if e["bookClosure"] >= today_iso), key=lambda e: e["bookClosure"])
+    cards = ""
+    for e in upcoming[:4]:
+        px = price_by_company.get(e["company"])
+        yield_txt = f"{e['dps'] / px * 100:.1f}% yield" if e.get("dps") and px else e["notes"]
+        amount = f"KES {e['dps']:,.2f}/share" if e.get("dps") else e["type"]
+        cards += (
+            f'<div class="mk-card"><div class="hd"><span>{html.escape(e["type"])}</span>'
+            f'<span style="color:#848E9C">closes {e["bookClosure"]}</span></div>'
+            f'<div style="font-weight:600">{html.escape(e["company"])}{" ⭐" if e["company"] in held else ""}</div>'
+            f'<div class="up" style="font-size:20px">{html.escape(amount)}</div>'
+            f'<div style="color:#848E9C;font-size:12px">{html.escape(yield_txt)} · pays {e["paymentDate"]}</div></div>'
+        )
+    if cards:
+        st.markdown(f'<div class="mk-cards">{cards}</div>', unsafe_allow_html=True)
+
+    types = sorted({e["type"] for e in events})
+    f1, f2 = st.columns([3, 1])
+    chosen = f1.multiselect("Event types", types, default=types, key="ca_types", label_visibility="collapsed")
+    mine = f2.toggle("Only my holdings", key="ca_mine")
+    rows = []
+    for e in sorted(events, key=lambda e: e["bookClosure"], reverse=True):
+        if e["type"] not in chosen or (mine and e["company"] not in held):
+            continue
+        px = price_by_company.get(e["company"])
+        status = "Paid" if e["paymentDate"] <= today_iso else "Book closed" if e["bookClosure"] < today_iso else "Upcoming"
+        rows.append({
+            "Status": status,
+            "Company": e["company"],
+            "Event": e["type"],
+            "DPS (KES)": e.get("dps"),
+            "Yield %": round(e["dps"] / px * 100, 2) if e.get("dps") and px else None,
+            "Announced": e["announced"],
+            "Book closure": e["bookClosure"],
+            "Payment / effective": e["paymentDate"],
+            "You hold": "⭐" if e["company"] in held else "",
+            "Notes": e["notes"],
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("🚀 IPO & Rights Issue calendar")
     st.caption("Illustrative sample calendar of primary-market events — not a live feed, not financial advice.")
-    events = load_ipo_calendar()
+    ipo = load_ipo_calendar()
     status_order = {"Ongoing": 0, "Upcoming": 1, "Closed": 2}
-    events = sorted(events, key=lambda e: (status_order.get(e["Status"], 9), e["openDate"]))
-    st.dataframe(pd.DataFrame(events), use_container_width=True, hide_index=True)
+    ipo = sorted(ipo, key=lambda e: (status_order.get(e["Status"], 9), e["openDate"]))
+    st.dataframe(pd.DataFrame(ipo), use_container_width=True, hide_index=True)
 
 
 def render_price_updates(df: pd.DataFrame) -> None:
@@ -1283,6 +1781,8 @@ def render_profile(df: pd.DataFrame) -> None:
             step=1000.0,
         )
         bio = st.text_area("About me / notes", value=profile["bio"], max_chars=500)
+        email_alerts = st.checkbox("📧 Email me price alerts", value=profile["emailAlerts"],
+                                   help="Sends watchlist alerts to the email above when they trigger.")
 
         if st.form_submit_button("💾 Save profile", type="primary"):
             result = update_profile(
@@ -1299,6 +1799,7 @@ def render_profile(df: pd.DataFrame) -> None:
                     "preferredSectors": preferred,
                     "monthlyBudget": float(budget),
                     "bio": bio,
+                    "emailAlerts": email_alerts,
                 },
             )
             (st.success if result.ok else st.error)(result.message)
@@ -1373,8 +1874,29 @@ def main() -> None:
 
     from data.portfolio import load_portfolio, process_open_orders
 
-    for result in process_open_orders(load_portfolio(), dict(zip(df["Company"], df[PRICE_COL]))):
+    from data.portfolio import credit_dividends, run_auto_invest
+
+    prices = dict(zip(df["Company"], df[PRICE_COL]))
+    portfolio = load_portfolio()
+    jobs = (
+        process_open_orders(portfolio, prices)
+        + run_auto_invest(portfolio, prices)
+        + credit_dividends(portfolio, load_corporate_actions())
+    )
+    for result in jobs:
         st.toast(result.message, icon="✅" if result.ok else "⚠️")
+
+    # Email any newly triggered watchlist alerts (once per trigger).
+    from data.notify import email_alerts, email_configured
+    from data.profile import load_profile
+    from data.watchlist import check_alerts, load_watchlist, save_watchlist
+
+    prof = load_profile()
+    if prof["emailAlerts"] and prof["email"] and email_configured():
+        wl = load_watchlist()
+        for message in email_alerts(wl, check_alerts(wl, prices), prof["email"]):
+            st.toast(message, icon="📧")
+        save_watchlist(wl)
 
     render_hero(raw)
     render_sidebar(df)
@@ -1400,7 +1922,7 @@ def main() -> None:
             "⭐ Watchlist",
             "💼 Portfolio",
             "🏛️ Bonds & Funds",
-            "🗓️ IPO Calendar",
+            "🗓️ Calendar",
             "📰 Research & News",
             "💹 Update Market Prices",
             "🎓 Asset Classes",
@@ -1423,16 +1945,16 @@ def main() -> None:
         render_watchlist(df)
 
     with tab_trade:
-        render_trading(df)
+        render_trading(df, raw)
 
     with tab_bonds:
         render_bonds_funds()
 
     with tab_ipo:
-        render_ipo_calendar()
+        render_calendar(df)
 
     with tab_news:
-        render_news()
+        render_news(df)
 
     with tab_prices:
         render_live_refresh(raw)

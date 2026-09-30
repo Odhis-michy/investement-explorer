@@ -49,6 +49,7 @@ def _default_profile() -> dict:
         "preferredSectors": [],
         "monthlyBudget": 0.0,
         "bio": "",
+        "emailAlerts": False,
         "lastUpdated": None,
     }
 

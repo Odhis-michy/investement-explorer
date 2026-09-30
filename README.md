@@ -29,6 +29,16 @@ plus a primer on how each major asset class works.
   candlestick or line chart (1M–5Y) and place market or limit buy/sell orders with 25–100% quick
   amounts, plus open orders, trade history and holdings. Simulated with virtual cash — the chart
   history is illustrative, reconstructed from yearly returns (`data/price_history.py`).
+- **Broker-style extras** (inspired by AIB-AXYS DigiTrader and Binance):
+  - NSE trading fees (brokerage, NSE/CMA levies, CDSC, VAT) on every trade, with a breakdown
+  - Stop-loss, take-profit, stop-limit and limit orders, day or good-till-cancelled, with order status history
+  - Chart indicators (MA, EMA, Bollinger, RSI, MACD, volume), a simulated order book and recent-trades tape
+  - Market statistics (volume, turnover, deals, advancers/decliners) and company search
+  - Portfolio analysis (sector allocation, value over time, P&L by sector)
+  - Auto-invest plans (weekly/monthly) and a dividend & corporate-actions calendar that pays dividends into
+    the paper portfolio (`data/corporate_actions.json`)
+  - PDF contract notes and portfolio statements, email price alerts (SMTP settings in `.env`) and
+    AI-drafted research notes (Groq)
 - **Profile** — a personal investor profile (contact details, risk tolerance, horizon, goals,
   preferred sectors, monthly budget) that can be updated any time; saved locally to
   `data/profile.json` (git-ignored).

@@ -1,0 +1,21 @@
+{
+  "note": "Illustrative sample corporate actions for this demo app, not official announcements. Cash dividends (dps = KES per share) are credited to the paper portfolio on the payment date for shares held at book closure, less 5% withholding tax.",
+  "events": [
+    {"id": "SCOM-2026-F", "company": "Safaricom PLC", "type": "Final dividend", "dps": 0.65, "announced": "2026-05-08", "bookClosure": "2026-07-31", "paymentDate": "2026-08-29", "notes": "FY2026 final dividend"},
+    {"id": "EQTY-2026-F", "company": "Equity Group Holdings", "type": "Final dividend", "dps": 4.25, "announced": "2026-03-20", "bookClosure": "2026-05-29", "paymentDate": "2026-06-26", "notes": "FY2025 final dividend"},
+    {"id": "KCB-2026-I", "company": "KCB Group", "type": "Interim dividend", "dps": 1.50, "announced": "2026-08-20", "bookClosure": "2026-09-15", "paymentDate": "2026-10-09", "notes": "H1 2026 interim dividend"},
+    {"id": "EABL-2026-F", "company": "East African Breweries (EABL)", "type": "Final dividend", "dps": 6.00, "announced": "2026-07-30", "bookClosure": "2026-10-02", "paymentDate": "2026-10-30", "notes": "FY2026 final dividend"},
+    {"id": "COOP-2026-I", "company": "Co-operative Bank of Kenya", "type": "Interim dividend", "dps": 0.50, "announced": "2026-09-25", "bookClosure": "2026-10-16", "paymentDate": "2026-11-06", "notes": "H1 2026 interim dividend"},
+    {"id": "SCBK-2026-I", "company": "Stanbic Holdings", "type": "Interim dividend", "dps": 3.20, "announced": "2026-08-27", "bookClosure": "2026-10-09", "paymentDate": "2026-10-23", "notes": "H1 2026 interim dividend"},
+    {"id": "BAT-2026-I", "company": "British American Tobacco Kenya", "type": "Interim dividend", "dps": 5.00, "announced": "2026-07-29", "bookClosure": "2026-08-28", "paymentDate": "2026-09-30", "notes": "H1 2026 interim dividend"},
+    {"id": "JUB-2026-I", "company": "Jubilee Holdings", "type": "Interim dividend", "dps": 2.00, "announced": "2026-09-18", "bookClosure": "2026-10-23", "paymentDate": "2026-11-20", "notes": "H1 2026 interim dividend"},
+    {"id": "ABSA-2026-I", "company": "Absa Bank Kenya", "type": "Interim dividend", "dps": 0.20, "announced": "2026-08-21", "bookClosure": "2026-09-26", "paymentDate": "2026-10-16", "notes": "H1 2026 interim dividend"},
+    {"id": "NCBA-2026-I", "company": "NCBA Group", "type": "Interim dividend", "dps": 2.75, "announced": "2026-08-28", "bookClosure": "2026-10-30", "paymentDate": "2026-11-27", "notes": "H1 2026 interim dividend"},
+    {"id": "KAKZ-2026-F", "company": "Kakuzi PLC", "type": "Final dividend", "dps": 24.00, "announced": "2026-09-10", "bookClosure": "2026-11-13", "paymentDate": "2026-12-11", "notes": "FY2025 final dividend"},
+    {"id": "TOTL-2026-F", "company": "Total Energies Kenya", "type": "Final dividend", "dps": 1.92, "announced": "2026-04-24", "bookClosure": "2026-06-19", "paymentDate": "2026-07-31", "notes": "FY2025 final dividend"},
+    {"id": "KEGN-2026-F", "company": "KenGen", "type": "Final dividend", "dps": 0.65, "announced": "2026-10-02", "bookClosure": "2026-12-04", "paymentDate": "2027-01-29", "notes": "FY2026 final dividend (expected)"},
+    {"id": "SCOM-2026-AGM", "company": "Safaricom PLC", "type": "AGM", "dps": null, "announced": "2026-07-15", "bookClosure": "2026-07-31", "paymentDate": "2026-08-27", "notes": "Annual general meeting (virtual)"},
+    {"id": "NSE-2026-BONUS", "company": "Nairobi Securities Exchange PLC", "type": "Bonus issue", "dps": null, "announced": "2026-09-12", "bookClosure": "2026-10-20", "paymentDate": "2026-11-10", "notes": "1 bonus share for every 10 held"},
+    {"id": "CARG-2026-SPLIT", "company": "Car & General (K) Ltd", "type": "Share split", "dps": null, "announced": "2026-09-22", "bookClosure": "2026-11-06", "paymentDate": "2026-11-20", "notes": "Proposed 1:5 share split, subject to approval"}
+  ]
+}

@@ -66,6 +66,11 @@ def build_history(company: dict, return_years: list[str], today: date | None = N
     spread = np.abs(rng.normal(0, DAILY_VOL / 2, len(hist)))
     hist["high"] = hist[["open", "close"]].max(axis=1) * (1 + spread)
     hist["low"] = hist[["open", "close"]].min(axis=1) * (1 - spread)
+
+    # Illustrative daily volume: scaled to company size, busier on bigger moves.
+    base_shares = float(company.get("marketCap", 10)) * 1e9 * 0.0004 / max(float(company["marketPrice"]), 0.01)
+    move = (hist["close"] / hist["open"] - 1).abs().to_numpy()
+    hist["volume"] = (base_shares * rng.lognormal(0, 0.45, len(hist)) * (1 + move * 25)).round(-2)
     return hist
 
 
@@ -74,7 +79,7 @@ def resample(hist: pd.DataFrame, rule: str) -> pd.DataFrame:
     out = (
         hist.set_index("date")
         .resample(rule)
-        .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
         .dropna()
         .reset_index()
     )
