@@ -338,4 +338,10 @@ SW = {
     "Profile saved.": "Wasifu umehifadhiwa.",
     "Investment opportunities": "Fursa za uwekezaji",
     "companies": "kampuni",
+    "Your conversation is saved automatically.": "Mazungumzo yako yanahifadhiwa yenyewe.",
+    "messages": "ujumbe",
+    "⬇️ Download chat": "⬇️ Pakua mazungumzo",
+    "🗑️ Clear chat": "🗑️ Futa mazungumzo",
+    "Set `GROQ_API_KEY` in a `.env` file (see `.env.example`) to enable the AI assistant. The rest of the app works without it.":
+        "Weka `GROQ_API_KEY` kwenye faili ya `.env` (angalia `.env.example`) ili kuwasha msaidizi wa AI. Sehemu nyingine za programu zinafanya kazi bila hiyo.",
 }

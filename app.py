@@ -1864,11 +1864,46 @@ def render_asset_classes() -> None:
             st.markdown(a["how"])
 
 
+CHAT_PATH = Path(__file__).parent / "data" / "chat_history.json"
+CHAT_CONTEXT_MESSAGES = 20  # how many past messages are sent to the AI with each question
+
+
+def load_chat_history() -> list[dict]:
+    return json.loads(CHAT_PATH.read_text()) if CHAT_PATH.exists() else []
+
+
+def save_chat_history(history: list[dict]) -> None:
+    CHAT_PATH.write_text(json.dumps(history, indent=2))
+
+
 def render_chat(df: pd.DataFrame) -> None:
     st.subheader(t("🤖 Ask Groq AI about these opportunities"))
 
+    # Chat history is saved to data/chat_history.json so it survives reloads and restarts.
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+        st.session_state.chat_history = load_chat_history()
+    history = st.session_state.chat_history
+
+    if history:
+        h1, h2, h3 = st.columns([4, 1, 1])
+        h1.caption(t("Your conversation is saved automatically.") + f" · {len(history)} " + t("messages"))
+        h2.download_button(
+            t("⬇️ Download chat"),
+            data="\n\n".join(f"[{m.get('time', '')}] {m['role'].upper()}: {m['content']}" for m in history),
+            file_name="ai_chat_history.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        if h3.button(t("🗑️ Clear chat"), key="chat_clear", use_container_width=True):
+            st.session_state.chat_history = []
+            CHAT_PATH.unlink(missing_ok=True)
+            st.rerun()
+
+    for msg in history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("time"):
+                st.caption(msg["time"])
 
     if not GROQ_API_KEY:
         st.info(t("Set `GROQ_API_KEY` in a `.env` file (see `.env.example`) to enable the AI assistant. "
@@ -1877,24 +1912,24 @@ def render_chat(df: pd.DataFrame) -> None:
         )
         return
 
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
     question = st.chat_input(t("e.g. Which sectors had the best average returns?"))
     if question:
-        st.session_state.chat_history.append({"role": "user", "content": question})
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        history.append({"role": "user", "content": question, "time": now})
+        save_chat_history(history)
         with st.chat_message("user"):
             st.markdown(question)
 
         with st.chat_message("assistant"):
             try:
-                answer = ask_groq(question, build_ai_context(df), st.session_state.chat_history[:-1])
+                past = [{"role": m["role"], "content": m["content"]} for m in history[:-1][-CHAT_CONTEXT_MESSAGES:]]
+                answer = ask_groq(question, build_ai_context(df), past)
             except Exception as exc:  # noqa: BLE001 - surface any API/config error to the user
                 answer = f"Sorry, the AI assistant hit an error: `{exc}`"
             st.markdown(answer)
 
-        st.session_state.chat_history.append({"role": "assistant", "content": answer})
+        history.append({"role": "assistant", "content": answer, "time": datetime.now().strftime("%Y-%m-%d %H:%M")})
+        save_chat_history(history)
 
 
 def main() -> None:
