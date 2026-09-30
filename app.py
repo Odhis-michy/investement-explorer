@@ -10,9 +10,10 @@ A single Streamlit app covering:
 All figures are illustrative/sample data for a demo app, not live market data.
 """
 
+import html
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -244,21 +245,198 @@ def hide_default_chrome() -> None:
     )
 
 
+HOME_CSS = """
+<style>
+.hero {background:#0f766e;color:#fff;border-radius:14px;padding:22px 26px;margin-bottom:14px;
+  display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
+.hero h1 {color:#fff !important;font-size:30px;margin:0;padding:0}
+.hero p {margin:4px 0 0;color:#d1fae5;font-size:15px}
+.hero .chips {margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+.hero .chip {background:rgba(255,255,255,.16);border-radius:999px;padding:3px 11px;font-size:13px}
+.hero .stamp {font-size:13px;color:#d1fae5;text-align:right}
+.kpis {display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:6px 0 18px}
+.kpi {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px 16px;background:rgba(128,128,128,.06)}
+.kpi .l {font-size:13px;opacity:.75}
+.kpi .v {font-size:26px;font-weight:600;margin-top:2px}
+.kpi .s {font-size:12px;opacity:.7;margin-top:2px}
+.panel {border:1px solid rgba(128,128,128,.25);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.panel h4 {margin:0 0 8px;font-size:16px;padding:0}
+.mv-row {display:flex;justify-content:space-between;gap:10px;padding:7px 0;
+  border-bottom:1px solid rgba(128,128,128,.18);font-size:14px}
+.mv-row:last-child {border-bottom:none}
+.mv-row .sub {opacity:.65;font-size:12px}
+.up {color:#16a34a;font-weight:600}
+.dn {color:#dc2626;font-weight:600}
+.home-note {font-size:12px;opacity:.65;margin-top:18px}
+</style>
+"""
+
+
+def _greeting() -> str:
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good morning"
+    if hour < 17:
+        return "Good afternoon"
+    return "Good evening"
+
+
+def render_hero(raw: dict) -> None:
+    from data.profile import load_profile
+
+    profile = load_profile()
+    name = html.escape(profile["fullName"])
+    if name:
+        headline = f"{_greeting()}, {name}"
+        chips = [profile["riskTolerance"] + " risk", profile["horizon"], *profile["preferredSectors"][:3]]
+        chips_html = "".join(f'<span class="chip">{html.escape(c)}</span>' for c in chips)
+    else:
+        headline = "Explore investment opportunities across the Kenyan economy"
+        chips_html = '<span class="chip">Set up your profile in the 👤 Profile tab to personalise this page</span>'
+
+    st.markdown(HOME_CSS, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+<div class="hero">
+  <div>
+    <h1>📈 Kenya Investment Explorer</h1>
+    <p>{headline}</p>
+    <div class="chips">{chips_html}</div>
+  </div>
+  <div class="stamp">NSE prices last updated<br><b>{html.escape(str(raw.get("lastPriceUpdate", "—")))}</b></div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def _kpi_cards(cards: list[tuple[str, str, str]]) -> None:
+    body = "".join(
+        f'<div class="kpi"><div class="l">{label}</div><div class="v">{value}</div><div class="s">{sub}</div></div>'
+        for label, value, sub in cards
+    )
+    st.markdown(f'<div class="kpis">{body}</div>', unsafe_allow_html=True)
+
+
+def _panel(title: str, rows: list[tuple[str, str, str, str]], empty: str = "Nothing to show yet.") -> None:
+    """rows: (main label, sub label, value text, css class for value)."""
+    body = "".join(
+        f'<div class="mv-row"><div>{html.escape(main)}<div class="sub">{html.escape(sub)}</div></div>'
+        f'<div class="{cls}">{val}</div></div>'
+        for main, sub, val, cls in rows
+    ) or f'<div class="mv-row"><div class="sub">{empty}</div></div>'
+    st.markdown(f'<div class="panel"><h4>{title}</h4>{body}</div>', unsafe_allow_html=True)
+
+
+def _signed(value: float) -> tuple[str, str]:
+    return f"{value:+.2f}%", "up" if value >= 0 else "dn"
+
+
 def render_overview(df: pd.DataFrame, raw: dict) -> None:
+    from data.portfolio import holdings_market_value, load_portfolio
+    from data.profile import load_profile
+    from data.watchlist import check_alerts, load_watchlist
+
+    movers = df.dropna(subset=[PREV_PRICE_COL]).copy()
+    movers = movers[movers[PREV_PRICE_COL] > 0]
+    movers["Change %"] = (movers[PRICE_COL] / movers[PREV_PRICE_COL] - 1) * 100
+    gainers = int((movers["Change %"] > 0).sum())
+    losers = int((movers["Change %"] < 0).sum())
+
     st.subheader("Market snapshot")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Companies tracked", len(df))
-    c2.metric("Sectors covered", df["Sector"].nunique())
-    c3.metric("Total market cap (KES Bn)", f"{df['Market Cap (KES Bn)'].sum():,.1f}")
-    c4.metric("Prices last updated", raw.get("lastPriceUpdate", "—"))
+    _kpi_cards(
+        [
+            ("🏢 Companies tracked", f"{len(df)}", "Listed on the NSE"),
+            ("🧩 Sectors covered", f"{df['Sector'].nunique()}", "Across the economy"),
+            ("💰 Total market cap", f"{df['Market Cap (KES Bn)'].sum():,.1f} Bn", "KES"),
+            (
+                "📊 Gainers / losers",
+                f'<span class="up">{gainers}</span> / <span class="dn">{losers}</span>',
+                "Since previous price",
+            ),
+        ]
+    )
 
-    st.subheader("Companies per sector")
-    sector_counts = df.groupby("Sector").size().sort_values(ascending=False)
-    st.bar_chart(sector_counts)
+    price_by_company = dict(zip(df["Company"], df[PRICE_COL]))
+    portfolio = load_portfolio()
+    total_value = portfolio["cash"] + holdings_market_value(portfolio, price_by_company)
+    baseline = portfolio["startingCash"] + portfolio.get("netDeposits", 0.0)
+    pnl_pct = (total_value - baseline) / baseline * 100 if baseline else 0.0
+    wl = load_watchlist()
+    triggered = check_alerts(wl, price_by_company)
+    pnl_text, pnl_cls = _signed(pnl_pct)
 
-    st.subheader("Average return by sector")
-    sector_returns = df.groupby("Sector")["Avg Return %"].mean().sort_values(ascending=False).round(2)
-    st.bar_chart(sector_returns)
+    st.subheader("Your account")
+    _kpi_cards(
+        [
+            ("💼 Paper portfolio", f"{total_value:,.0f}", "KES, cash + holdings"),
+            ("📈 Total P&L", f'<span class="{pnl_cls}">{pnl_text}</span>', "Against money put in"),
+            ("🔔 Alerts triggered", f"{len(triggered)}", "See the Watchlist tab"),
+            ("⭐ Watching", f"{len(wl['watching'])}", "Companies on your watchlist"),
+        ]
+    )
+
+    st.subheader("Market movers")
+    g_col, l_col = st.columns(2)
+
+    def mover_rows(frame: pd.DataFrame) -> list[tuple[str, str, str, str]]:
+        return [
+            (r["Company"], f"KES {r[PRICE_COL]:,.2f} · {r['Sector']}", *_signed(r["Change %"]))
+            for _, r in frame.iterrows()
+        ]
+
+    with g_col:
+        top_up = movers[movers["Change %"] > 0].nlargest(5, "Change %")
+        _panel("🟢 Top gainers", mover_rows(top_up), "No gainers since the last update.")
+    with l_col:
+        top_down = movers[movers["Change %"] < 0].nsmallest(5, "Change %")
+        _panel("🔴 Top losers", mover_rows(top_down), "No losers since the last update.")
+
+    chart_col, perf_col = st.columns([3, 2])
+    with chart_col:
+        st.subheader("Average return by sector")
+        import altair as alt
+
+        sector_returns = df.groupby("Sector", as_index=False)["Avg Return %"].mean().round(2)
+        chart = (
+            alt.Chart(sector_returns)
+            .mark_bar(cornerRadiusEnd=4)
+            .encode(
+                x=alt.X("Avg Return %:Q", title="Average return (%)"),
+                y=alt.Y("Sector:N", sort="-x", title=None, axis=alt.Axis(labelLimit=260)),
+                color=alt.condition(alt.datum["Avg Return %"] >= 0, alt.value("#0f766e"), alt.value("#dc2626")),
+                tooltip=["Sector", "Avg Return %"],
+            )
+            .properties(height=380)
+        )
+        st.altair_chart(chart, use_container_width=True)
+    with perf_col:
+        st.subheader("Long-run performers")
+
+        def perf_rows(frame: pd.DataFrame) -> list[tuple[str, str, str, str]]:
+            return [(r["Company"], r["Sector"], *_signed(r["Avg Return %"])) for _, r in frame.iterrows()]
+
+        _panel("🏆 Best average return", perf_rows(df.nlargest(3, "Avg Return %")))
+        _panel("⚠️ Weakest average return", perf_rows(df.nsmallest(3, "Avg Return %")))
+
+    profile = load_profile()
+    st.subheader("Picks in your sectors")
+    if profile["preferredSectors"]:
+        picks = df[df["Sector"].isin(profile["preferredSectors"])].nlargest(5, "Avg Return %")
+        rows = [
+            (r["Company"], f"{r['Sector']} · KES {r[PRICE_COL]:,.2f}", *_signed(r["Avg Return %"]))
+            for _, r in picks.iterrows()
+        ]
+        _panel(f"Top companies for your {profile['riskTolerance'].lower()} profile, by average return", rows)
+    else:
+        st.info("Choose your preferred sectors in the 👤 Profile tab to see personalised picks here.", icon="👤")
+
+    st.markdown(
+        '<div class="home-note">⚠️ Market prices can be refreshed from a free public NSE data source '
+        "(Update Market Prices tab); historical returns are illustrative demo data. "
+        "Nothing on this page is financial advice.</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_companies(df: pd.DataFrame) -> pd.DataFrame:
@@ -791,25 +969,11 @@ def render_chat(df: pd.DataFrame) -> None:
 def main() -> None:
     st.set_page_config(page_title="Kenya Investment Explorer", page_icon="📈", layout="wide")
     hide_default_chrome()
-    st.title("📈 Kenya Investment Explorer")
-    from data.profile import load_profile
-
-    if name := load_profile()["fullName"]:
-        st.markdown(f"👋 Welcome back, **{name}**")
-    st.caption(
-        "Browse companies across every major sector of the Kenyan economy, their share "
-        "returns, and current market price per share — with an AI assistant to ask about it."
-    )
-    st.warning(
-        "⚠️ Market prices can be refreshed from a free public NSE data source (see the "
-        "**Update Market Prices** tab), but historical return figures remain illustrative "
-        "demo data. Nothing on this page is financial advice.",
-        icon="⚠️",
-    )
 
     version = st.session_state.get("data_version", 0)
     df = load_data(version)
     raw = load_raw()
+    render_hero(raw)
 
     (
         tab_overview,
