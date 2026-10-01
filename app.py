@@ -514,12 +514,6 @@ def render_auth_page() -> None:
                         ok, msg = auth.finish_reset(ident2, code, pw1)
                         (st.success if ok else st.error)(t(msg))
 
-        from data.db import is_sqlite
-
-        if is_sqlite() and Path("/mount/src").exists():  # running on Streamlit Community Cloud
-            st.warning(t("This app is using temporary storage — accounts may be lost when it restarts. "
-                         "The app owner should set DATABASE_URL."), icon="⚠️")
-
 
 TWOFA_TIMEOUT_SECONDS = 600
 
