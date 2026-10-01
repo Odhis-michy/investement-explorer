@@ -74,8 +74,11 @@ _lock = threading.Lock()
 
 def database_url() -> str:
     url = os.environ.get("DATABASE_URL") or DEFAULT_URL
-    if url.startswith("postgres://"):  # Heroku/Supabase-style scheme SQLAlchemy doesn't accept
-        url = "postgresql://" + url[len("postgres://"):]
+    # Pin the driver to psycopg 3: newer SQLAlchemy picks it for a bare postgresql:// URL anyway,
+    # and it ships wheels for current Python versions (psycopg2 doesn't always).
+    for scheme in ("postgres://", "postgresql://"):
+        if url.startswith(scheme):
+            url = "postgresql+psycopg://" + url[len(scheme):]
     return url
 
 
