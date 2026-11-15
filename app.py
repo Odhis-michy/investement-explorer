@@ -86,8 +86,14 @@ def load_data(version: tuple = ()) -> pd.DataFrame:
     return df
 
 
+def invalid_prices(edited_df: pd.DataFrame) -> list[str]:
+    """Companies whose edited price is blank, not a number, or not above zero."""
+    prices = pd.to_numeric(edited_df[PRICE_COL], errors="coerce")
+    return edited_df.loc[~(prices > 0), "Company"].tolist()
+
+
 def save_price_updates(edited_df: pd.DataFrame) -> bool:
-    """Persist edited market prices back to data/companies.json."""
+    """Persist edited market prices back to data/companies.json. Callers must reject invalid_prices() first."""
     raw = load_raw()
     today = date.today().isoformat()
     edited_by_name = edited_df.set_index("Company")
@@ -95,6 +101,8 @@ def save_price_updates(edited_df: pd.DataFrame) -> bool:
     changed = False
     for c in raw["companies"]:
         new_price = float(edited_by_name.loc[c["company"], PRICE_COL])
+        if not new_price > 0:  # blank (NaN) or zero would corrupt every portfolio valued at this price
+            continue
         old_price = float(c["marketPrice"])
         if new_price != old_price:
             c["previousPrice"] = old_price
@@ -2118,6 +2126,9 @@ def render_price_updates(df: pd.DataFrame) -> None:
     )
 
     if st.button(t("💾 Save price updates"), type="primary"):
+        if bad := invalid_prices(edited):
+            st.error(t("Prices must be numbers greater than zero. Fix these before saving:") + " " + ", ".join(bad))
+            return
         changed = save_price_updates(edited)
         if changed:
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
