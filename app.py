@@ -112,7 +112,9 @@ def save_price_updates(edited_df: pd.DataFrame) -> bool:
 
     if changed:
         raw["lastPriceUpdate"] = today
-        DATA_PATH.write_text(json.dumps(raw, indent=2))
+        from data.fetch_prices import write_companies_json
+
+        write_companies_json(raw, DATA_PATH)
     return changed
 
 
