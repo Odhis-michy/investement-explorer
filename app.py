@@ -689,10 +689,14 @@ def render_delete_account(sb) -> None:
 
 def _save_language() -> None:
     from data.profile import set_preference
+    from data.storage import as_user
 
     st.session_state["lang"] = st.session_state["pref_lang"]
-    if st.session_state.get("user"):
-        set_preference("language", st.session_state["lang"])
+    if user := st.session_state.get("user"):
+        # Widget callbacks run before main() calls storage.set_user(), often on a fresh thread where
+        # the current-user context is empty, so name the user explicitly.
+        with as_user(user["id"]):
+            set_preference("language", st.session_state["lang"])
 
 
 def render_preferences(sb) -> None:
