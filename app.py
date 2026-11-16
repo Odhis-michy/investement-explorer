@@ -888,8 +888,7 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
                 f'<span class="px">{r[PRICE_COL]:,.2f}</span><span class="ch {cls}">{text}</span></div>'
             )
         return (
-            f'<div class="mk-card"><div class="hd"><span>{title}</span>'
-            f'<a href="?sort={sort}" target="_self">{t("More ›")}</a></div>{rows}</div>'
+            f'<div class="mk-card"><div class="hd"><span>{title}</span></div>{rows}</div>'
         )
 
     # Market statistics (illustrative volume from the reconstructed price history).
@@ -913,15 +912,21 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        '<div class="mk-cards">'
-        + card(t("🔥 Hot · largest"), "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %")
-        + card(t("🚀 Top gainer"), "gain", df.nlargest(3, "Change %"), "Change %")
-        + card(t("📉 Top loser"), "loss", df.nsmallest(3, "Change %"), "Change %")
-        + card(t("🏆 Top performer · 5-yr"), "perf", df.nlargest(3, "Avg Return %"), "Avg Return %")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    # "More ›" is a Streamlit button, not a ?sort= link: a link reloads the page, which starts a new
+    # session and (on Streamlit Cloud) drops the user back on the sign-in page.
+    def _sort_by(key: str) -> None:
+        st.query_params["sort"] = key
+
+    cards = [
+        (t("🔥 Hot · largest"), "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %"),
+        (t("🚀 Top gainer"), "gain", df.nlargest(3, "Change %"), "Change %"),
+        (t("📉 Top loser"), "loss", df.nsmallest(3, "Change %"), "Change %"),
+        (t("🏆 Top performer · 5-yr"), "perf", df.nlargest(3, "Avg Return %"), "Avg Return %"),
+    ]
+    for col, (title, sort, frame, value_col) in zip(st.columns(len(cards)), cards):
+        with col:
+            st.markdown(card(title, sort, frame, value_col), unsafe_allow_html=True)
+            st.button(t("More ›"), key=f"mk_more_{sort}", on_click=_sort_by, args=(sort,), type="tertiary")
 
     # --- Category bar + controls -----------------------------------------------------
     category = st.pills(t("Category"),
