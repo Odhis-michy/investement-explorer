@@ -16,6 +16,8 @@ Run directly to refresh once: `python data/fetch_prices.py`
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +78,23 @@ class FetchResult:
     skipped: list[str] | None = None
 
 
+def write_companies_json(raw: dict, path: Path = DATA_PATH) -> None:
+    """Write companies.json atomically (temp file + rename).
+
+    The app, the background alert worker and the price editor all read and write this file. A plain
+    write_text() truncates it first, so a reader at that moment gets half a file and crashes with a
+    JSONDecodeError. os.replace() swaps the complete new file in one step.
+    """
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".companies-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(raw, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def _fetch_html() -> str:
     resp = requests.get(SOURCE_URL, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
@@ -130,7 +149,7 @@ def update_companies_json() -> FetchResult:
         ticker_prices = fetch_live_prices()
     except Exception as exc:  # noqa: BLE001 - any failure should fall back gracefully
         raw["lastFetch"] = {"attemptedAt": now, "status": "failed", "error": str(exc)}
-        DATA_PATH.write_text(json.dumps(raw, indent=2))
+        write_companies_json(raw)
         return FetchResult(ok=False, message=f"Fetch failed: {exc}")
 
     today = now[:10]
@@ -162,7 +181,7 @@ def update_companies_json() -> FetchResult:
         "updatedCount": updated_count,
         "skipped": skipped,
     }
-    DATA_PATH.write_text(json.dumps(raw, indent=2))
+    write_companies_json(raw)
 
     return FetchResult(
         ok=True,

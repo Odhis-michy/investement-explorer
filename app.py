@@ -86,8 +86,14 @@ def load_data(version: tuple = ()) -> pd.DataFrame:
     return df
 
 
+def invalid_prices(edited_df: pd.DataFrame) -> list[str]:
+    """Companies whose edited price is blank, not a number, or not above zero."""
+    prices = pd.to_numeric(edited_df[PRICE_COL], errors="coerce")
+    return edited_df.loc[~(prices > 0), "Company"].tolist()
+
+
 def save_price_updates(edited_df: pd.DataFrame) -> bool:
-    """Persist edited market prices back to data/companies.json."""
+    """Persist edited market prices back to data/companies.json. Callers must reject invalid_prices() first."""
     raw = load_raw()
     today = date.today().isoformat()
     edited_by_name = edited_df.set_index("Company")
@@ -95,6 +101,8 @@ def save_price_updates(edited_df: pd.DataFrame) -> bool:
     changed = False
     for c in raw["companies"]:
         new_price = float(edited_by_name.loc[c["company"], PRICE_COL])
+        if not new_price > 0:  # blank (NaN) or zero would corrupt every portfolio valued at this price
+            continue
         old_price = float(c["marketPrice"])
         if new_price != old_price:
             c["previousPrice"] = old_price
@@ -104,7 +112,9 @@ def save_price_updates(edited_df: pd.DataFrame) -> bool:
 
     if changed:
         raw["lastPriceUpdate"] = today
-        DATA_PATH.write_text(json.dumps(raw, indent=2))
+        from data.fetch_prices import write_companies_json
+
+        write_companies_json(raw, DATA_PATH)
     return changed
 
 
@@ -689,10 +699,14 @@ def render_delete_account(sb) -> None:
 
 def _save_language() -> None:
     from data.profile import set_preference
+    from data.storage import as_user
 
     st.session_state["lang"] = st.session_state["pref_lang"]
-    if st.session_state.get("user"):
-        set_preference("language", st.session_state["lang"])
+    if user := st.session_state.get("user"):
+        # Widget callbacks run before main() calls storage.set_user(), often on a fresh thread where
+        # the current-user context is empty, so name the user explicitly.
+        with as_user(user["id"]):
+            set_preference("language", st.session_state["lang"])
 
 
 def render_preferences(sb) -> None:
@@ -2114,6 +2128,9 @@ def render_price_updates(df: pd.DataFrame) -> None:
     )
 
     if st.button(t("💾 Save price updates"), type="primary"):
+        if bad := invalid_prices(edited):
+            st.error(t("Prices must be numbers greater than zero. Fix these before saving:") + " " + ", ".join(bad))
+            return
         changed = save_price_updates(edited)
         if changed:
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1

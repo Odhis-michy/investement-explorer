@@ -13,3 +13,4 @@ data/ai_notes.json
 data/chat_history.json
 data/app.db
 data/*.json.imported
+data/.companies-*.tmp
