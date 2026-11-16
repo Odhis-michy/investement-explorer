@@ -448,6 +448,9 @@ def browser_bridge() -> str | None:
         params = dict(parse_qsl(href[1:]))
         st.query_params.clear()
         st.query_params.update(params)
+        if "sort" in params:  # reset the "Sort by" box so a card's "More ›" always applies its sort
+            for k in [k for k in st.session_state if str(k).startswith("mk_sort_")]:
+                del st.session_state[k]
         if "trade" in params:
             st.session_state.pop("td_last_param", None)  # select the company even if it was picked before
             st.session_state["tabs_nonce"] = st.session_state.get("tabs_nonce", 0) + 1  # open the Trade tab
