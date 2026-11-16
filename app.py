@@ -1500,10 +1500,7 @@ def render_live_refresh(raw: dict) -> None:
         with st.spinner(t("Fetching live NSE prices...")):
             result = update_companies_json()
         st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-        if result.ok:
-            st.success(result.message)
-        else:
-            st.error(result.message)
+        flash(result.message, ok=result.ok)
         st.rerun()
 
 
@@ -1643,7 +1640,7 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
         f1, f2, f3, f4 = st.columns([3, 2, 2, 2])
         ai_company = f1.selectbox(t("Company"), sorted(df["Company"]), key="ai_company")
         ai_amount = f2.number_input(t("Amount (KES)"), min_value=100.0, step=500.0,
-                                    value=float(profile["monthlyBudget"] or 10_000), key="ai_amount")
+                                    value=max(100.0, float(profile["monthlyBudget"] or 10_000)), key="ai_amount")
         ai_freq = f3.selectbox(t("Frequency"), ["Monthly", "Weekly"], format_func=t, key=f"ai_freq_{st.session_state.get('lang')}")
         ai_start = f4.date_input(t("First run"), value=date.today(), min_value=date.today(), key="ai_start")
         if st.form_submit_button(t("➕ Add plan"), type="primary"):
@@ -1707,16 +1704,18 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
         dep_amount = st.number_input(t("Deposit amount (KES)"), min_value=0.0, step=1000.0, key="deposit_amount")
         if st.button(t("⬆️ Deposit"), key="deposit_btn"):
             result = deposit(portfolio, float(dep_amount))
-            (st.success if result.ok else st.error)(result.message)
             if result.ok:
+                flash(result.message)
                 st.rerun()
+            st.error(result.message)
     with wd_col:
         wd_amount = st.number_input(t("Withdraw amount (KES)"), min_value=0.0, step=1000.0, key="withdraw_amount")
         if st.button(t("⬇️ Withdraw"), key="withdraw_btn"):
             result = withdraw(portfolio, float(wd_amount))
-            (st.success if result.ok else st.error)(result.message)
             if result.ok:
+                flash(result.message)
                 st.rerun()
+            st.error(result.message)
 
     # --- Holdings & history -----------------------------------------------------------------------
     st.markdown(t("#### 📋 Holdings"))
@@ -1785,7 +1784,7 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
                    "Cannot be undone."))
         if st.button(t("Reset portfolio to starting cash"), key="reset_portfolio_btn"):
             reset_portfolio()
-            st.success(t("Portfolio reset."))
+            flash(t("Portfolio reset."))
             st.rerun()
 
 
@@ -1883,7 +1882,7 @@ def render_watchlist(df: pd.DataFrame) -> None:
             )
             target = c2.number_input(t("Target price (KES)"),
                 min_value=0.0,
-                value=float(existing["target"]) if existing else float(price or 0.0),
+                value=float(existing["target"]) if existing else round(float(price or 0.0) * 1.05, 2),  # 5% above today
                 step=0.5,
                 key=f"target_{company}",
             )
@@ -2117,10 +2116,15 @@ def render_price_updates(df: pd.DataFrame) -> None:
         changed = save_price_updates(edited)
         if changed:
             st.session_state["data_version"] = st.session_state.get("data_version", 0) + 1
-            st.success(t("Prices updated and saved."))
+            flash(t("Prices updated and saved."))
             st.rerun()
         else:
             st.info(t("No price changes detected."))
+
+
+def flash(message: str, ok: bool = True) -> None:
+    """Show a message after the st.rerun() that follows it (a message shown before a rerun is wiped)."""
+    st.session_state["ui_flash"] = (message, ok)
 
 
 def client_label(profile: dict) -> str:
@@ -2232,9 +2236,10 @@ def render_profile(df: pd.DataFrame) -> None:
                     "smsAlerts": sms_alerts,
                 },
             )
-            (st.success if result.ok else st.error)(result.message)
             if result.ok:
+                flash(result.message)
                 st.rerun()
+            st.error(result.message)
 
     if profile["emailAlerts"] or profile["smsAlerts"]:
         from data.notify import alert_targets, send_test_alert
@@ -2259,7 +2264,7 @@ def render_profile(df: pd.DataFrame) -> None:
         st.caption(t("Deletes all saved profile details. Cannot be undone."))
         if st.button(t("Clear my profile"), key="reset_profile_btn"):
             reset_profile()
-            st.success(t("Profile cleared."))
+            flash(t("Profile cleared."))
             st.rerun()
 
 
@@ -2371,6 +2376,8 @@ def main() -> None:
     storage.set_user(user["id"])
     if msg := st.session_state.pop("auth_flash", None):
         st.toast(msg, icon="👋")
+    if pending := st.session_state.pop("ui_flash", None):
+        st.toast(pending[0], icon="✅" if pending[1] else "⚠️")
     if not st.session_state.get("lang_loaded"):
         saved = storage.get_doc("profile") or {}
         if saved.get("language"):
