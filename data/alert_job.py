@@ -59,10 +59,23 @@ def check_and_notify(prices: dict[str, float] | None = None) -> list[str]:
         if not (email_to or sms_to):
             return []
         wl = load_watchlist()
+        before = _sent_flags(wl)
         messages = send_alerts(wl, check_alerts(wl, prices or current_prices()), email_to, sms_to)
-        if messages:
-            save_watchlist(wl)
+        after = _sent_flags(wl)
+        if after != before:
+            # Save whenever a flag changed, including re-arming (notified -> False) so an alert can fire
+            # again on the next crossing. Re-read first and copy only the flags across, so an alert the
+            # user added, edited or removed while emails/SMS were being sent isn't overwritten.
+            fresh = load_watchlist()
+            for alert in fresh["alerts"]:
+                if alert["company"] in after:
+                    alert["notified"], alert["smsNotified"] = after[alert["company"]]
+            save_watchlist(fresh)
         return messages
+
+
+def _sent_flags(wl: dict) -> dict[str, tuple[bool, bool]]:
+    return {a["company"]: (bool(a.get("notified")), bool(a.get("smsNotified"))) for a in wl["alerts"]}
 
 
 def run_cycle(refresh: bool) -> tuple[list[str], bool]:
