@@ -1789,6 +1789,35 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
             st.rerun()
 
 
+def _prices_stale(raw: dict, max_age_minutes: float) -> bool:
+    """True when the last *successful* live refresh is missing or older than `max_age_minutes`."""
+    last = raw.get("lastFetch") or {}
+    if last.get("status") != "ok":
+        return True
+    try:
+        fetched = datetime.fromisoformat(last["attemptedAt"])
+    except (KeyError, TypeError, ValueError):
+        return True
+    return (datetime.now(fetched.tzinfo) - fetched).total_seconds() > max_age_minutes * 60
+
+
+@st.cache_data(ttl=float(os.environ.get("PRICE_AUTO_REFRESH_CHECK_MINUTES", 15)) * 60, show_spinner=False)
+def auto_refresh_prices() -> str | None:
+    """Refresh live prices when they're stale. Cached, so it runs at most once per TTL for the whole
+    server (not per visitor). Needed on Streamlit Cloud: a rebooted or woken app starts again from the
+    companies.json committed in git, and the background worker only refreshes during NSE trading hours."""
+    if os.environ.get("PRICE_AUTO_REFRESH", "1") == "0":
+        return None
+    try:
+        if not _prices_stale(load_raw(), float(os.environ.get("PRICE_MAX_AGE_MINUTES", 60))):
+            return None
+        from data.fetch_prices import update_companies_json
+
+        return update_companies_json().message
+    except Exception as exc:  # noqa: BLE001 - never break the page over a price refresh
+        return f"Auto price refresh failed: {exc}"
+
+
 @st.cache_resource
 def background_alerts() -> dict | None:
     """Start the price-alert worker once per server process (not per browser session)."""
@@ -2364,6 +2393,7 @@ def main() -> None:
         _cookie_js(*pending)
     user = auth_gate()
     background_alerts()  # runs for every account, even while nobody is signed in
+    auto_refresh_prices()  # a freshly woken app fetches today's prices instead of showing the git copy
     if user is None:
         storage.set_user(None)
         render_auth_page()

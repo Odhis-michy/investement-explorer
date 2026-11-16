@@ -82,13 +82,29 @@ def _fetch_html() -> str:
     return resp.text
 
 
+def _parse_change(text: str) -> float | None:
+    """The source's day change vs the previous close ("+0.50", "-1.25"; blank = no move today)."""
+    text = text.replace(",", "").strip()
+    if not text:
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
 def _parse_ticker_prices(html: str) -> dict[str, float]:
     """Parse the 'Listed companies/securities' table into {ticker: price}."""
+    return {ticker: price for ticker, (price, _change) in _parse_ticker_quotes(html).items()}
+
+
+def _parse_ticker_quotes(html: str) -> dict[str, tuple[float, float | None]]:
+    """Parse the 'Listed companies/securities' table into {ticker: (price, day change)}."""
     # "html.parser" doesn't auto-close unclosed <tr>/<td> tags per HTML5 rules,
     # so this minified page's rows end up nested instead of sibling <tr>s — lxml
     # implements proper tree construction and parses it correctly.
     soup = BeautifulSoup(html, "lxml")
-    prices: dict[str, float] = {}
+    prices: dict[str, tuple[float, float | None]] = {}
 
     for row in soup.select("div.t table tr"):
         cells = row.find_all("td")
@@ -100,17 +116,24 @@ def _parse_ticker_prices(html: str) -> dict[str, float]:
         ticker = ticker_link.get_text(strip=True)
         price_text = cells[3].get_text(strip=True).replace(",", "")
         try:
-            prices[ticker] = float(price_text)
+            price = float(price_text)
         except ValueError:
             continue
+        change = _parse_change(cells[4].get_text()) if len(cells) > 4 else None
+        prices[ticker] = (price, change)
 
     return prices
 
 
 def fetch_live_prices() -> dict[str, float]:
     """Returns {ticker: price}. Raises on network/parse failure."""
+    return {ticker: price for ticker, (price, _change) in fetch_live_quotes().items()}
+
+
+def fetch_live_quotes() -> dict[str, tuple[float, float | None]]:
+    """Returns {ticker: (price, day change)}. Raises on network/parse failure."""
     html = _fetch_html()
-    prices = _parse_ticker_prices(html)
+    prices = _parse_ticker_quotes(html)
     if not prices:
         raise ValueError("Parsed 0 rows from NSE source page — page layout may have changed")
     return prices
@@ -127,7 +150,7 @@ def update_companies_json() -> FetchResult:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     try:
-        ticker_prices = fetch_live_prices()
+        ticker_quotes = fetch_live_quotes()
     except Exception as exc:  # noqa: BLE001 - any failure should fall back gracefully
         raw["lastFetch"] = {"attemptedAt": now, "status": "failed", "error": str(exc)}
         DATA_PATH.write_text(json.dumps(raw, indent=2))
@@ -139,17 +162,20 @@ def update_companies_json() -> FetchResult:
 
     for c in raw["companies"]:
         ticker = TICKER_BY_COMPANY.get(c["company"])
-        if ticker is None or ticker not in ticker_prices:
+        if ticker is None or ticker not in ticker_quotes:
             skipped.append(c["company"])
             continue
 
-        new_price = ticker_prices[ticker]
+        new_price, change = ticker_quotes[ticker]
         old_price = float(c["marketPrice"])
+        if change is not None:
+            # "Previous" = the previous trading day's close, straight from the source's Change column,
+            # so Change % is today's move even if this copy of the file was weeks out of date.
+            c["previousPrice"] = round(new_price - change, 2)
+        elif new_price != old_price and c.get("lastUpdated") != today:
+            # No change figure: fall back to the last price we saw on an earlier day.
+            c["previousPrice"] = old_price
         if new_price != old_price:
-            # Keep "previous" as the last price from an earlier day, so frequent intraday refreshes
-            # (e.g. the background alert worker) show today's change rather than the last few minutes'.
-            if c.get("lastUpdated") != today:
-                c["previousPrice"] = old_price
             c["marketPrice"] = new_price
             c["lastUpdated"] = today
             updated_count += 1
