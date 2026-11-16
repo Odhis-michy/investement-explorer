@@ -217,8 +217,11 @@ def send_login_code(user_id: str) -> tuple[bool, str]:
 
 def verify_login(user_id: str, code: str, recovery: bool = False) -> tuple[bool, str]:
     """Check a sign-in code (authenticator, SMS or recovery). Wrong codes count toward the account lockout."""
-    from data.auth import record_failed_attempt
+    from data.auth import clear_failed_attempts, is_locked, record_failed_attempt
 
+    locked = is_locked(user_id)
+    if locked:
+        return False, locked
     with engine().connect() as conn:
         row = conn.execute(
             text("SELECT twofa_method, totp_secret, last_totp_step, recovery_codes FROM users WHERE id = :u"),
@@ -234,13 +237,16 @@ def verify_login(user_id: str, code: str, recovery: bool = False) -> tuple[bool,
         if h in hashes:
             hashes.remove(h)
             _save(user_id, recovery_codes=json.dumps(hashes))
+            clear_failed_attempts(user_id)
             return True, f"Recovery code accepted — {len(hashes)} left. Generate new ones in the sidebar if you're low."
     elif method == "totp":
         step = match_totp(secret, code, last_step)
         if step is not None:
             _save(user_id, last_totp_step=step)
+            clear_failed_attempts(user_id)
             return True, "Verified."
     elif method == "sms" and _check_code(user_id, "login", code):
+        clear_failed_attempts(user_id)
         return True, "Verified."
 
     locked = record_failed_attempt(user_id)

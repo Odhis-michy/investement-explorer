@@ -152,11 +152,23 @@ def authenticate(identifier: str, password: str) -> tuple[bool, str, dict | None
     if not verify_password(password, pw_hash):
         return False, record_failed_attempt(user_id) or generic, None
     with engine().begin() as conn:
-        conn.execute(
-            text("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = :t WHERE id = :i"),
-            {"t": now_iso(), "i": user_id},
-        )
+        has_2fa = conn.execute(text("SELECT twofa_method FROM users WHERE id = :i"), {"i": user_id}).scalar()
+        if has_2fa:
+            # Keep the failure count until the second step passes (twofa.verify_login resets it);
+            # otherwise re-entering the password would wipe out wrong-code attempts and allow
+            # unlimited guessing of the 6-digit code.
+            conn.execute(text("UPDATE users SET last_login = :t WHERE id = :i"), {"t": now_iso(), "i": user_id})
+        else:
+            conn.execute(
+                text("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = :t WHERE id = :i"),
+                {"t": now_iso(), "i": user_id},
+            )
     return True, "Signed in.", _public(row)
+
+
+def clear_failed_attempts(user_id: str) -> None:
+    with engine().begin() as conn:
+        conn.execute(text("UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = :i"), {"i": user_id})
 
 
 def check_password(user_id: str, password: str) -> bool:
@@ -264,9 +276,13 @@ def start_reset(identifier: str) -> tuple[bool, str]:
             text(
                 "INSERT INTO password_resets (user_id, code_hash, expires_at, attempts) VALUES (:u, :c, :e, 0) "
                 "ON CONFLICT (user_id) DO UPDATE SET code_hash = excluded.code_hash, "
-                "expires_at = excluded.expires_at, attempts = 0"
+                "expires_at = excluded.expires_at, "
+                # Asking for a new code doesn't reset the wrong-guess count while the old code is still
+                # live, so the 5-guess limit can't be bypassed by requesting codes over and over.
+                "attempts = CASE WHEN password_resets.expires_at > :n THEN password_resets.attempts ELSE 0 END"
             ),
-            {"u": row[0], "c": _sha256(code), "e": (_now() + timedelta(minutes=RESET_MINUTES)).isoformat()},
+            {"u": row[0], "c": _sha256(code), "e": (_now() + timedelta(minutes=RESET_MINUTES)).isoformat(),
+             "n": _now().isoformat()},
         )
     ok, msg = send_email(
         row[2],
