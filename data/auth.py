@@ -198,7 +198,8 @@ def is_locked(user_id: str) -> str | None:
     return None
 
 
-def change_password(user_id: str, current: str, new: str) -> tuple[bool, str]:
+def change_password(user_id: str, current: str, new: str, keep_token: str | None = None) -> tuple[bool, str]:
+    """Change the password and sign out every other session (keep_token = this device's session)."""
     with engine().connect() as conn:
         row = _user_row(conn, "id", user_id)
     if row is None or not verify_password(current, row[3]):
@@ -208,7 +209,8 @@ def change_password(user_id: str, current: str, new: str) -> tuple[bool, str]:
         return False, problem
     with engine().begin() as conn:
         conn.execute(text("UPDATE users SET password_hash = :p WHERE id = :i"), {"p": hash_password(new), "i": user_id})
-        conn.execute(text("DELETE FROM sessions WHERE user_id = :i"), {"i": user_id})  # sign out other devices
+        conn.execute(text("DELETE FROM sessions WHERE user_id = :i AND token_hash != :k"),  # sign out other devices
+                     {"i": user_id, "k": _sha256(keep_token or "")})
     return True, "Password changed. Other devices have been signed out."
 
 

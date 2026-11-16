@@ -671,7 +671,7 @@ def render_account_box(sb) -> None:
                 if new1 != new2:
                     st.error(t("Passwords don't match."))
                 else:
-                    ok, msg = change_password(user["id"], cur, new1)
+                    ok, msg = change_password(user["id"], cur, new1, keep_token=st.session_state.get("session_token"))
                     (st.success if ok else st.error)(t(msg))
 
 
