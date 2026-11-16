@@ -916,6 +916,8 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
     # session and (on Streamlit Cloud) drops the user back on the sign-in page.
     def _sort_by(key: str) -> None:
         st.query_params["sort"] = key
+        # Also reset the "Sort by" box, in case the user changed it after the last "More ›".
+        st.session_state[f"mk_sort_{key}_{st.session_state.get('lang')}"] = SORTS[key][0]
 
     cards = [
         (t("🔥 Hot · largest"), "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %"),
