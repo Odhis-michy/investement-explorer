@@ -902,8 +902,7 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
                 f'<span class="px">{r[PRICE_COL]:,.2f}</span><span class="ch {cls}">{text}</span></div>'
             )
         return (
-            f'<div class="mk-card"><div class="hd"><span>{title}</span>'
-            f'<a href="?sort={sort}" target="_self">{t("More ›")}</a></div>{rows}</div>'
+            f'<div class="mk-card"><div class="hd"><span>{title}</span></div>{rows}</div>'
         )
 
     # Market statistics (illustrative volume from the reconstructed price history).
@@ -927,15 +926,23 @@ def render_overview(df: pd.DataFrame, raw: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        '<div class="mk-cards">'
-        + card(t("🔥 Hot · largest"), "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %")
-        + card(t("🚀 Top gainer"), "gain", df.nlargest(3, "Change %"), "Change %")
-        + card(t("📉 Top loser"), "loss", df.nsmallest(3, "Change %"), "Change %")
-        + card(t("🏆 Top performer · 5-yr"), "perf", df.nlargest(3, "Avg Return %"), "Avg Return %")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+    # "More ›" is a Streamlit button, not a ?sort= link: a link reloads the page, which starts a new
+    # session and (on Streamlit Cloud) drops the user back on the sign-in page.
+    def _sort_by(key: str) -> None:
+        st.query_params["sort"] = key
+        # Also reset the "Sort by" box, in case the user changed it after the last "More ›".
+        st.session_state[f"mk_sort_{key}_{st.session_state.get('lang')}"] = SORTS[key][0]
+
+    cards = [
+        (t("🔥 Hot · largest"), "mcap", df.nlargest(3, "Market Cap (KES Bn)"), "Change %"),
+        (t("🚀 Top gainer"), "gain", df.nlargest(3, "Change %"), "Change %"),
+        (t("📉 Top loser"), "loss", df.nsmallest(3, "Change %"), "Change %"),
+        (t("🏆 Top performer · 5-yr"), "perf", df.nlargest(3, "Avg Return %"), "Avg Return %"),
+    ]
+    for col, (title, sort, frame, value_col) in zip(st.columns(len(cards)), cards):
+        with col:
+            st.markdown(card(title, sort, frame, value_col), unsafe_allow_html=True)
+            st.button(t("More ›"), key=f"mk_more_{sort}", on_click=_sort_by, args=(sort,), type="tertiary")
 
     # --- Category bar + controls -----------------------------------------------------
     category = st.pills(t("Category"),
@@ -1803,6 +1810,35 @@ def render_trading(df: pd.DataFrame, raw: dict) -> None:
             st.rerun()
 
 
+def _prices_stale(raw: dict, max_age_minutes: float) -> bool:
+    """True when the last *successful* live refresh is missing or older than `max_age_minutes`."""
+    last = raw.get("lastFetch") or {}
+    if last.get("status") != "ok":
+        return True
+    try:
+        fetched = datetime.fromisoformat(last["attemptedAt"])
+    except (KeyError, TypeError, ValueError):
+        return True
+    return (datetime.now(fetched.tzinfo) - fetched).total_seconds() > max_age_minutes * 60
+
+
+@st.cache_data(ttl=float(os.environ.get("PRICE_AUTO_REFRESH_CHECK_MINUTES", 15)) * 60, show_spinner=False)
+def auto_refresh_prices() -> str | None:
+    """Refresh live prices when they're stale. Cached, so it runs at most once per TTL for the whole
+    server (not per visitor). Needed on Streamlit Cloud: a rebooted or woken app starts again from the
+    companies.json committed in git, and the background worker only refreshes during NSE trading hours."""
+    if os.environ.get("PRICE_AUTO_REFRESH", "1") == "0":
+        return None
+    try:
+        if not _prices_stale(load_raw(), float(os.environ.get("PRICE_MAX_AGE_MINUTES", 60))):
+            return None
+        from data.fetch_prices import update_companies_json
+
+        return update_companies_json().message
+    except Exception as exc:  # noqa: BLE001 - never break the page over a price refresh
+        return f"Auto price refresh failed: {exc}"
+
+
 @st.cache_resource
 def background_alerts() -> dict | None:
     """Start the price-alert worker once per server process (not per browser session)."""
@@ -2381,6 +2417,7 @@ def main() -> None:
         _cookie_js(*pending)
     user = auth_gate()
     background_alerts()  # runs for every account, even while nobody is signed in
+    auto_refresh_prices()  # a freshly woken app fetches today's prices instead of showing the git copy
     if user is None:
         storage.set_user(None)
         render_auth_page()
