@@ -412,6 +412,61 @@ def _cookie_js(token: str, max_age: int | None) -> None:
     )
 
 
+# Streamlit Community Cloud strips cookies before they reach the app, so st.context.cookies is
+# empty there and "Keep me signed in" never worked on the live site. Links like href="?trade=..."
+# also reload the page, which starts a new Streamlit session. This small in-page component
+# (st.components.v2, no iframe) fixes both: it reads the sign-in cookie in the browser and sends
+# it to Python, and it turns clicks on in-app "?..." links into reruns instead of page reloads.
+BRIDGE_JS = """
+export default function (component) {
+  const { setStateValue } = component;
+  window.__kiBridge = component;
+  const m = document.cookie.match(/(?:^|;\\s*)ki_session=([^;]*)/);
+  const token = m ? decodeURIComponent(m[1]) : '';
+  if (window.__kiTokenSent !== token) {
+    window.__kiTokenSent = token;
+    setStateValue('token', token);
+  }
+  if (!window.__kiLinksHooked) {
+    window.__kiLinksHooked = true;
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest ? e.target.closest('a[href^="?"]') : null;
+      if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.__kiBridge.setTriggerValue('link', a.getAttribute('href'));
+    }, true);
+  }
+}
+"""
+
+
+@st.cache_resource
+def _bridge_component():
+    return st.components.v2.component("ki_bridge", js=BRIDGE_JS)
+
+
+def browser_bridge() -> str | None:
+    """Mount the bridge; apply any in-app link click. Returns the browser's sign-in cookie, if known."""
+    from urllib.parse import parse_qsl
+
+    st.markdown("<style>.st-key-ki_bridge {display:none}</style>", unsafe_allow_html=True)
+    result = _bridge_component()(key="ki_bridge", default={"token": None},
+                                 on_token_change=lambda: None, on_link_change=lambda: None)
+    href = getattr(result, "link", None)
+    if isinstance(href, str) and href.startswith("?"):
+        params = dict(parse_qsl(href[1:]))
+        st.query_params.clear()
+        st.query_params.update(params)
+        if "sort" in params:  # reset the "Sort by" box so a card's "More ›" always applies its sort
+            for k in [k for k in st.session_state if str(k).startswith("mk_sort_")]:
+                del st.session_state[k]
+        if "trade" in params:
+            st.session_state.pop("td_last_param", None)  # select the company even if it was picked before
+            st.session_state["tabs_nonce"] = st.session_state.get("tabs_nonce", 0) + 1  # open the Trade tab
+    return getattr(result, "token", None)
+
+
 def _start_session(user: dict, remember: bool, message: str) -> None:
     from data.auth import create_session
 
@@ -435,13 +490,14 @@ def sign_out() -> None:
     st.rerun()
 
 
-def auth_gate() -> dict | None:
+def auth_gate(browser_token: str | None = None) -> dict | None:
     """The signed-in user from this session or the browser's session cookie, else None."""
     from data.auth import COOKIE_NAME, user_for_session
 
     user = st.session_state.get("user")
     if user is None and not st.session_state.get("signed_out"):
-        token = st.context.cookies.get(COOKIE_NAME)
+        # st.context.cookies works locally; on Community Cloud only the browser bridge sees the cookie.
+        token = st.context.cookies.get(COOKIE_NAME) or browser_token
         user = user_for_session(token)
         if user:
             st.session_state["user"] = user
@@ -2379,7 +2435,8 @@ def main() -> None:
         _cookie_js("", 0)
     if pending := st.session_state.pop("set_cookie", None):
         _cookie_js(*pending)
-    user = auth_gate()
+    browser_token = browser_bridge()
+    user = auth_gate(browser_token)
     background_alerts()  # runs for every account, even while nobody is signed in
     if user is None:
         storage.set_user(None)
@@ -2455,6 +2512,7 @@ def main() -> None:
             t("👤 Profile"),
         ],
         default=t(TRADE_TAB) if "trade" in st.query_params else None,
+        key=f"main_tabs_{st.session_state.get('tabs_nonce', 0)}",  # a new key re-opens the default tab
     )
 
     with tab_overview:
